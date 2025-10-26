@@ -6,8 +6,8 @@ import numpy as np
 import io
 from datetime import datetime
 
-st.set_page_config(page_title="Risk-Level Neighborhood Map Viewer", layout="wide")
-st.title("🏠 Risk Level Neighborhood Map Viewer")
+st.set_page_config(page_title="Termite Risk Index Mapper", layout="wide")
+st.title("🏠 Local Termite Risk Index Mapper")
 
 # Load the CSV directly
 @st.cache_data
