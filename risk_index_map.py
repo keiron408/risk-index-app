@@ -6,7 +6,7 @@ import numpy as np
 import io
 from datetime import datetime
 
-st.set_page_config(page_title="Termite Risk Index Mapper", layout="wide")
+st.set_page_config(page_title="Termite Risk Index", layout="wide")
 st.title("🏠 Local Termite Risk Index Mapper")
 
 # Load the CSV directly
