@@ -255,13 +255,53 @@ with tab1:
     map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
     if map_data and map_data.get("last_clicked") is not None:
-        click_lat = map_data["last_clicked"]["lat"]
-        click_lon = map_data["last_clicked"]["lng"]
-        distances = haversine_vec(click_lat, click_lon, df[lat_col].values, df[lon_col].values)
-        nearest_idx = np.argmin(distances)
-        st.session_state.selected = df.iloc[nearest_idx].to_dict()
-        st.session_state.active_tab = "table"
-        st.rerun()
+        try:
+            click_lat = map_data["last_clicked"]["lat"]
+            click_lon = map_data["last_clicked"]["lng"]
+
+        # Compute nearest known parcel
+            distances = haversine_vec(click_lat, click_lon, df[lat_col].values, df[lon_col].values)
+            nearest_idx = np.argmin(distances)
+            nearest_row = df.iloc[nearest_idx]
+
+        # If clicked location is far from any known address
+            if distances[nearest_idx] > radius_m:
+                st.components.v1.html(f"""
+                    <script>
+                    var x = document.getElementById("toast");
+                    x.innerText = "⚠️ No nearby addresses found for the clicked location";
+                    x.style.backgroundColor = "#e6b800";  // yellow
+                    x.className = "show";
+                    setTimeout(function(){{ x.className = x.className.replace("show", ""); }}, 4000);
+
+                    // Smooth map pan back to original center
+                    if (window.streamlitFoliumMap) {{
+                    window.streamlitFoliumMap.setView([{center_lat}, {center_lon}], 13, {{animate: true, duration: 1.5}});
+                    }}
+                    </script>
+                """, height=0)
+
+            else:
+                st.session_state.selected = nearest_row.to_dict()
+                st.session_state.active_tab = "table"
+                st.rerun()
+
+        except Exception as e:
+            msg = str(e).replace("'", "").replace('"', "")
+            st.components.v1.html(f"""
+                <script>
+                var x = document.getElementById("toast");
+                x.innerText = "❌ Error processing click: {msg}";
+                x.style.backgroundColor = "#cc0000";  // red
+                x.className = "show";
+                setTimeout(function(){{ x.className = x.className.replace("show", ""); }}, 4000);
+
+                // Smooth map pan back to original center
+                if (window.streamlitFoliumMap) {{
+                    window.streamlitFoliumMap.setView([{center_lat}, {center_lon}], 13, {{animate: true, duration: 1.5}});
+                }}
+                </script>
+            """, height=0)
 
 with tab2:
     if not st.session_state.nearby_df.empty:
@@ -280,10 +320,14 @@ with tab2:
         risk_color = COLOR.get(risk_val, "gray")
 
 # Main header
+        header_text_color = "white" if str(risk_val).strip().lower() == "very high" else "black"
+
         st.markdown(
-            f"<div style='background:{risk_color};color:black;font-size:16px;padding:8px;border-radius:6px;text-align:center;'>"
+            f"<div style='background:{risk_color};color:{header_text_color};font-size:16px;padding:8px;"
+            f"border-radius:6px;text-align:center;'>"
             f"{len(display_df)} Addresses within {radius_toggle} ft of {sel_street} (Risk: {risk_val})</div>",
             unsafe_allow_html=True)
+
 # Secondary header with most recent inspection
         if recent_insp_col and recent_insp_col in nearby_df.columns:
             recent_dates = pd.to_datetime(nearby_df[recent_insp_col], errors='coerce').dropna()
