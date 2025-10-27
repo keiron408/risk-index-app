@@ -261,7 +261,7 @@ with tab1:
         nearest_idx = np.argmin(distances)
         st.session_state.selected = df.iloc[nearest_idx].to_dict()
         st.session_state.active_tab = "table"
-        st.experimental_rerun()
+        st.rerun()
 
 with tab2:
     if not st.session_state.nearby_df.empty:
