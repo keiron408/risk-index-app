@@ -4,27 +4,78 @@ import folium
 from streamlit_folium import st_folium
 import numpy as np
 import io
-from datetime import datetime
 
+# -------------------------
+# App Configuration
+# -------------------------
 st.set_page_config(page_title="Risk-Level Neighborhood Map Viewer", layout="wide")
 st.title("🏠 Risk Level Neighborhood Map Viewer")
 
-# Load the CSV directly
+# -------------------------
+# Global Style + Toast
+# -------------------------
+st.markdown("""
+<style>
+@media (max-width: 600px) {
+    h1 {font-size: 1.3rem !important;}
+    .stRadio label, .stSelectbox label {font-size: 0.9rem !important;}
+    .stDataFrame {font-size: 0.8rem !important;}
+}
+.fab {
+    position: fixed;
+    bottom: 70px;
+    right: 20px;
+    background-color: #0078D4;
+    color: white;
+    padding: 14px;
+    border-radius: 50%;
+    font-size: 20px;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+    text-decoration: none;
+    z-index: 9999;
+}
+.fab:hover {background-color: #005fa3;}
+#toast {
+    visibility: hidden;
+    min-width: 280px;
+    background-color: #333;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 12px;
+    position: fixed;
+    z-index: 9999;
+    left: 50%;
+    bottom: 40px;
+    transform: translateX(-50%);
+    font-size: 14px;
+}
+#toast.show {
+    visibility: visible;
+    animation: fadein 0.5s, fadeout 0.5s 3s;
+}
+@keyframes fadein {from {bottom: 0; opacity: 0;} to {bottom: 40px; opacity: 1;}}
+@keyframes fadeout {from {bottom: 40px; opacity: 1;} to {bottom: 0; opacity: 0;}}
+</style>
+<div id="toast">⚠️</div>
+<script>
+function showToast(msg) {
+  var x = document.getElementById("toast");
+  x.innerText = msg;
+  x.className = "show";
+  setTimeout(function(){ x.className = x.className.replace("show", ""); }, 4000);
+}
+</script>
+""", unsafe_allow_html=True)
+
+# -------------------------
+# Load Data
+# -------------------------
 @st.cache_data
 def load_data():
-    df = pd.read_csv("master_with_inspection_counts_sm202510.csv")
-    return df
+    return pd.read_csv("master_with_inspection_counts_sm202510.csv")
 
 df = load_data()
-
-# -------------------------
-# Upload CSV
-# -------------------------
-#uploaded_file = st.file_uploader("Upload CSV (include lat/lon, street, risk_level, inspection info)", type=["csv"])
-#if uploaded_file is None:
-#    st.stop()
-
-#df = pd.read_csv(uploaded_file)
 
 # -------------------------
 # Auto-detect columns
@@ -54,231 +105,186 @@ if not lat_col or not lon_col or not risk_col:
     st.stop()
 
 # -------------------------
-# Controls
+# Sidebar Controls
 # -------------------------
-radius_toggle = st.radio("Select radius (ft)", [200, 300], horizontal=True)
-radius_m = radius_toggle * 0.3048
+with st.sidebar:
+    st.header("⚙️ Controls")
+    with st.expander("Search and Radius", expanded=False):
+        radius_toggle = st.radio("Select radius (ft)", [200, 300], horizontal=True)
+        radius_m = radius_toggle * 0.3048
+        search_opts = sorted(df[addr_col].dropna().unique()) if addr_col else []
+        search_choice = st.selectbox("🔍 Search Address", [""] + search_opts)
 
 # -------------------------
-# Clean coordinates
+# Prepare Data
 # -------------------------
 df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
 df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
 df = df.dropna(subset=[lat_col, lon_col]).reset_index(drop=True)
 
-# -------------------------
-# Colors and map center
-# -------------------------
 COLOR = {"Very High": "#8B0000", "High": "#FF0000", "Moderate": "#FFA500", "Low": "#FFFF00"}
-center_lat = df[lat_col].mean()
-center_lon = df[lon_col].mean()
+center_lat, center_lon = df[lat_col].mean(), df[lon_col].mean()
 
 # -------------------------
-# Session state
+# Session State
 # -------------------------
-if "selected" not in st.session_state:
-    st.session_state.selected = None
-if "nearby_df" not in st.session_state:
-    st.session_state.nearby_df = pd.DataFrame()
+st.session_state.setdefault("selected", None)
+st.session_state.setdefault("nearby_df", pd.DataFrame())
+st.session_state.setdefault("active_tab", "map")
 
 # -------------------------
-# Haversine helper
+# Distance Function
 # -------------------------
 def haversine_vec(lat0, lon0, lats, lons):
     R = 6371000.0
-    phi1 = np.radians(lat0)
-    phi2 = np.radians(lats)
-    dphi = np.radians(lats - lat0)
-    dlambda = np.radians(lons - lon0)
+    phi1, phi2 = np.radians(lat0), np.radians(lats)
+    dphi, dlambda = np.radians(lats - lat0), np.radians(lons - lon0)
     a = np.sin(dphi / 2.0) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2.0) ** 2
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # -------------------------
-# Clear / Reset
+# Handle Search
 # -------------------------
-col1, _ = st.columns([1, 9])
-with col1:
-    if st.button("Clear Selection / Reset Map"):
-        st.session_state.selected = None
-        st.session_state.nearby_df = pd.DataFrame()
-
-# -------------------------
-# Search box
-# -------------------------
-search_opts = sorted(df[addr_col].dropna().unique()) if addr_col else []
-search_choice = st.selectbox("Search / select an address", [""] + search_opts)
-
 if search_choice:
     sel_row = df[df[addr_col] == search_choice]
     if not sel_row.empty:
         st.session_state.selected = sel_row.iloc[0].to_dict()
+        st.session_state.active_tab = "table"
 
 # -------------------------
-# Map build functions
+# Map Builders
 # -------------------------
 def build_base_map():
-    return folium.Map(
-        location=[center_lat, center_lon],
-        zoom_start=13,
-        tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}",
-        attr="Google"
-    )
+    return folium.Map(location=[center_lat, center_lon], zoom_start=13,
+                      tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}", attr="Google")
 
 def build_focused_map_and_nearby(selected_dict):
-    lat = float(selected_dict[lat_col])
-    lon = float(selected_dict[lon_col])
+    lat, lon = float(selected_dict[lat_col]), float(selected_dict[lon_col])
     risk_val = selected_dict.get(risk_col, "")
     risk_color = COLOR.get(risk_val, "gray")
+    m = folium.Map(location=[lat, lon], zoom_start=19,
+                   tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}", attr="Google")
+    folium.Circle(location=[lat, lon], radius=radius_m, color="blue", fill=False, weight=2).add_to(m)
 
-    m = folium.Map(
-        location=[lat, lon],
-        zoom_start=20,
-        tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}",
-        attr="Google"
-    )
-
-    # Circle showing radius
-    folium.Circle(
-        location=[lat, lon],
-        radius=radius_m,
-        color="blue",
-        fill=False,
-        weight=2
-    ).add_to(m)
-
-    # Pulsating selected address
+    # Pulsating center
     html = f"""
-    <div style="
-        background-color:{risk_color};
-        width:20px;
-        height:20px;
-        border-radius:50%;
-        border: 2px solid black;
-        animation: pulse 1s infinite;
-    "></div>
+    <div style="background-color:{risk_color};
+                width:20px;height:20px;
+                border-radius:50%;border:2px solid black;
+                animation:pulse 1s infinite;"></div>
     <style>
     @keyframes pulse {{
-        0% {{transform: scale(0.8); opacity:0.7;}}
-        50% {{transform: scale(1.5); opacity:0.4;}}
-        100% {{transform: scale(0.8); opacity:0.7;}}
+        0% {{transform:scale(0.8);opacity:0.7;}}
+        50% {{transform:scale(1.4);opacity:0.4;}}
+        100% {{transform:scale(0.8);opacity:0.7;}}
     }}
     </style>
     """
-    folium.Marker(
-        location=[lat, lon],
-        icon=folium.DivIcon(html=html)
-    ).add_to(m)
+    folium.Marker(location=[lat, lon], icon=folium.DivIcon(html=html)).add_to(m)
 
-    # Nearby addresses within radius
     distances = haversine_vec(lat, lon, df[lat_col].values, df[lon_col].values)
     df["dist_m"] = distances
     nearby_df = df[df["dist_m"] <= radius_m].copy()
+    if nearby_df.empty:
+        return m, nearby_df
+
     nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
 
-    for _, r in nearby_df.iterrows():
+    # Add neighbors + animated lines
+    for i, r in nearby_df.iterrows():
         if np.isclose(float(r[lat_col]), lat) and np.isclose(float(r[lon_col]), lon):
             continue
         rc = COLOR.get(r.get(risk_col, ""), "gray")
-        folium.CircleMarker(
-            location=[r[lat_col], r[lon_col]],
-            radius=5,
-            color="white",
-            weight=1,
-            fill=True,
-            fill_color=rc,
-            fill_opacity=0.9,
-            popup=f"{r.get(street_col,'')}<br>Risk: {r.get(risk_col,'')}"
-        ).add_to(m)
+        # neighbor marker
+        folium.CircleMarker(location=[r[lat_col], r[lon_col]],
+                            radius=5, color="white", weight=1,
+                            fill=True, fill_color=rc, fill_opacity=0.9,
+                            popup=f"{r.get(street_col,'')}<br>Risk: {r.get(risk_col,'')}").add_to(m)
+        # connection line
+        folium.PolyLine([(r[lat_col], r[lon_col]), (lat, lon)],
+                        color=rc, weight=1.2, opacity=0.6).add_to(m)
 
+    # Add animation script for lines
+    m.get_root().html.add_child(folium.Element("""
+    <style>
+    path.leaflet-interactive {
+        stroke-dasharray: 5;
+        animation: draw 2s linear infinite;
+    }
+    @keyframes draw {
+        0% { stroke-dashoffset: 10; }
+        100% { stroke-dashoffset: 0; }
+    }
+    </style>
+    """))
     return m, nearby_df
 
 # -------------------------
-# Render map
+# Responsive Map Sizing
 # -------------------------
-if st.session_state.selected is None:
-    base_map = build_base_map()
-    map_data = st_folium(base_map, width=900, height=600)
+def get_map_dimensions():
+    try:
+        ua = st.runtime.scriptrunner.script_run_context.session_info.user_agent
+        if "Mobile" in ua:
+            return 350, 500
+    except Exception:
+        pass
+    return 900, 600
+
+map_width, map_height = get_map_dimensions()
+
+# -------------------------
+# Tabs
+# -------------------------
+if st.session_state.active_tab == "table":
+    tab2, tab1 = st.tabs(["📊 Nearby Addresses", "🗺️ Map"])
 else:
-    focused_map, nearby = build_focused_map_and_nearby(st.session_state.selected)
-    st.session_state.nearby_df = nearby
-    map_data = st_folium(focused_map, width=900, height=600)
+    tab1, tab2 = st.tabs(["🗺️ Map", "📊 Nearby Addresses"])
 
-# -------------------------
-# Handle map click
-# -------------------------
-if map_data and map_data.get("last_clicked") is not None:
-    click_lat = map_data["last_clicked"]["lat"]
-    click_lon = map_data["last_clicked"]["lng"]
-    distances = haversine_vec(click_lat, click_lon, df[lat_col].values, df[lon_col].values)
-    nearest_idx = np.argmin(distances)
-    st.session_state.selected = df.iloc[nearest_idx].to_dict()
-    focused_map, nearby = build_focused_map_and_nearby(st.session_state.selected)
-    st.session_state.nearby_df = nearby
-    st_folium(focused_map, width=900, height=600)
-
-# -------------------------
-# Results table
-# -------------------------
-if st.session_state.selected is not None:
-    nearby_df = st.session_state.nearby_df
-
-    table_cols = [street_col, risk_col]
-    if risk_score_col in nearby_df.columns:
-        table_cols.append(risk_score_col)
-    table_cols.append("Distance (ft)")
-    for extra_col in [recent_insp_col, num_insp_col]:
-        if extra_col and extra_col in nearby_df.columns:
-            table_cols.append(extra_col)
-
-    display_df = nearby_df[table_cols].copy()
-
-    count_within = len(nearby_df)
-    sel_street = st.session_state.selected.get(street_col, "")
-    risk_val = st.session_state.selected.get(risk_col, "")
-    risk_color = COLOR.get(risk_val, "gray")
-
-    if recent_insp_col and recent_insp_col in nearby_df.columns:
-        recent_dates = pd.to_datetime(nearby_df[recent_insp_col], errors='coerce')
-        recent_dates = recent_dates.dropna()
-        recent_date = recent_dates.max().strftime("%m/%d/%Y") if not recent_dates.empty else "N/A"
+with tab1:
+    if st.session_state.selected is None:
+        m = build_base_map()
     else:
-        recent_date = "N/A"
+        m, nearby = build_focused_map_and_nearby(st.session_state.selected)
+        st.session_state.nearby_df = nearby
+        if nearby.empty:
+            addr = st.session_state.selected.get(addr_col, "this location")
+            st.components.v1.html(f"<script>showToast('⚠️ No nearby addresses found within {radius_toggle} ft of {addr}')</script>", height=0)
+    map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
-    st.markdown(
-        f"<div style='background-color:{risk_color}; color:black; font-size:20px; padding:10px;'>{count_within} Addresses within {radius_toggle} ft of {sel_street} (Risk Level: {risk_val})</div>",
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        f"<div style='background-color:#f2f2f2; color:black; font-size:14px; padding:8px;'>Most Recent Termite Inspection Within {radius_toggle} ft: {recent_date}</div>",
-        unsafe_allow_html=True
-    )
+    if map_data and map_data.get("last_clicked") is not None:
+        click_lat = map_data["last_clicked"]["lat"]
+        click_lon = map_data["last_clicked"]["lng"]
+        distances = haversine_vec(click_lat, click_lon, df[lat_col].values, df[lon_col].values)
+        nearest_idx = np.argmin(distances)
+        st.session_state.selected = df.iloc[nearest_idx].to_dict()
+        st.session_state.active_tab = "table"
+        st.experimental_rerun()
 
-    # -------------------------
-    # Display table (view-only, non-sortable, no inline download)
-    # -------------------------
-    st.dataframe(display_df.astype(str), use_container_width=True, hide_index=True)
+with tab2:
+    if not st.session_state.nearby_df.empty:
+        nearby_df = st.session_state.nearby_df
+        table_cols = [street_col, risk_col]
+        if risk_score_col in nearby_df.columns:
+            table_cols.append(risk_score_col)
+        table_cols.append("Distance (ft)")
+        for c in [recent_insp_col, num_insp_col]:
+            if c and c in nearby_df.columns:
+                table_cols.append(c)
+        display_df = nearby_df[table_cols].copy().fillna("")
 
-    # -------------------------
-    # Download Termite Risk Index CSV
-    # -------------------------
-    if not display_df.empty:
-        download_df = display_df.copy()
-        header1 = f"{len(download_df)} Addresses within {radius_toggle} ft of {sel_street} (Risk Level: {risk_val})"
-        header2 = f"Most Recent Termite Inspection Within {radius_toggle} ft: {recent_date}"
-        run_date = f"Run Date: {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}"
+        sel_street = st.session_state.selected.get(street_col, "")
+        risk_val = st.session_state.selected.get(risk_col, "")
+        risk_color = COLOR.get(risk_val, "gray")
 
-        output = io.StringIO()
-        output.write(header1 + "\n")
-        output.write(header2 + "\n")
-        download_df.to_csv(output, index=False)
-        output.write(run_date + "\n")
-        csv_bytes = output.getvalue().encode("utf-8")
+        st.markdown(
+            f"<div style='background:{risk_color};color:black;font-size:16px;padding:8px;border-radius:6px;text-align:center;'>"
+            f"{len(display_df)} Addresses within {radius_toggle} ft of {sel_street} (Risk: {risk_val})</div>",
+            unsafe_allow_html=True)
 
-        file_name = f"termite_risk_index_{sel_street.replace(' ','_')}.csv"
+        st.dataframe(display_df.astype(str), use_container_width=True, hide_index=True)
 
-        st.download_button(
-            label="📥 Download Termite Risk Index CSV",
-            data=csv_bytes,
-            file_name=file_name,
-            mime="text/csv"
-        )
+# -------------------------
+# Floating Back-to-Top Button
+# -------------------------
+st.markdown('<a href="#top" class="fab">⬆️</a>', unsafe_allow_html=True)
