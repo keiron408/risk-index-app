@@ -279,14 +279,27 @@ with tab2:
         risk_val = st.session_state.selected.get(risk_col, "")
         risk_color = COLOR.get(risk_val, "gray")
 
+# Main header
         st.markdown(
             f"<div style='background:{risk_color};color:black;font-size:16px;padding:8px;border-radius:6px;text-align:center;'>"
             f"{len(display_df)} Addresses within {radius_toggle} ft of {sel_street} (Risk: {risk_val})</div>",
             unsafe_allow_html=True)
+# Secondary header with most recent inspection
+        if recent_insp_col and recent_insp_col in nearby_df.columns:
+            recent_dates = pd.to_datetime(nearby_df[recent_insp_col], errors='coerce').dropna()
+            recent_date = recent_dates.max().strftime("%m/%d/%Y") if not recent_dates.empty else "N/A"
+        else:
+            recent_date = "N/A"
+
+        st.markdown(
+            f"<div style='background:#f9f9f9;color:black;font-size:13px;padding:6px;border-radius:6px;margin-bottom:8px;text-align:center;'>"
+            f"Most Recent Termite Inspection Within {radius_toggle} ft: {recent_date}</div>",
+            unsafe_allow_html=True
+        )
 
         st.dataframe(display_df.astype(str), use_container_width=True, hide_index=True)
 
 # -------------------------
 # Floating Back-to-Top Button
 # -------------------------
-st.markdown('<a href="#top" class="fab">⬆️</a>', unsafe_allow_html=True)
+#st.markdown('<a href="#top" class="fab">⬆️</a>', unsafe_allow_html=True)
