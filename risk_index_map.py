@@ -8,9 +8,7 @@ import io
 # -------------------------
 # App Configuration
 # -------------------------
-
 st.set_page_config(page_title="Termite Risk Index Viewer", layout="wide")
-
 st.title("🏠 Termite Risk Index Viewer")
 
 # -------------------------
@@ -23,20 +21,6 @@ st.markdown("""
     .stRadio label, .stSelectbox label {font-size: 0.9rem !important;}
     .stDataFrame {font-size: 0.8rem !important;}
 }
-.fab {
-    position: fixed;
-    bottom: 70px;
-    right: 20px;
-    background-color: #0078D4;
-    color: white;
-    padding: 14px;
-    border-radius: 50%;
-    font-size: 20px;
-    box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
-    text-decoration: none;
-    z-index: 9999;
-}
-.fab:hover {background-color: #005fa3;}
 #toast {
     visibility: hidden;
     min-width: 280px;
@@ -193,20 +177,17 @@ def build_focused_map_and_nearby(selected_dict):
     nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
 
     # Add neighbors + animated lines
-    for i, r in nearby_df.iterrows():
+    for _, r in nearby_df.iterrows():
         if np.isclose(float(r[lat_col]), lat) and np.isclose(float(r[lon_col]), lon):
             continue
         rc = COLOR.get(r.get(risk_col, ""), "gray")
-        # neighbor marker
         folium.CircleMarker(location=[r[lat_col], r[lon_col]],
                             radius=5, color="white", weight=1,
                             fill=True, fill_color=rc, fill_opacity=0.9,
                             popup=f"{r.get(street_col,'')}<br>Risk: {r.get(risk_col,'')}").add_to(m)
-        # connection line
         folium.PolyLine([(r[lat_col], r[lon_col]), (lat, lon)],
                         color=rc, weight=1.2, opacity=0.6).add_to(m)
 
-    # Add animation script for lines
     m.get_root().html.add_child(folium.Element("""
     <style>
     path.leaflet-interactive {
@@ -251,57 +232,62 @@ with tab1:
         st.session_state.nearby_df = nearby
         if nearby.empty:
             addr = st.session_state.selected.get(addr_col, "this location")
-            st.components.v1.html(f"<script>showToast('⚠️ No nearby addresses found within {radius_toggle} ft of {addr}')</script>", height=0)
+            st.components.v1.html(f"<script>showToast('⚠️ No nearby addresses found near {addr}')</script>", height=0)
     map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
+    # Handle map clicks
     if map_data and map_data.get("last_clicked") is not None:
         try:
             click_lat = map_data["last_clicked"]["lat"]
             click_lon = map_data["last_clicked"]["lng"]
 
-        # Compute nearest known parcel
+            # Compute nearest known parcel
             distances = haversine_vec(click_lat, click_lon, df[lat_col].values, df[lon_col].values)
             nearest_idx = np.argmin(distances)
             nearest_row = df.iloc[nearest_idx]
 
-        # If clicked location is far from any known address
             if distances[nearest_idx] > radius_m:
-                st.components.v1.html(f"""
+                # ⚠️ Show yellow warning toast and stay on map
+                st.components.v1.html("""
                     <script>
-                    var x = document.getElementById("toast");
-                    x.innerText = "⚠️ No nearby addresses found for the clicked location";
-                    x.style.backgroundColor = "#e6b800";  // yellow
-                    x.className = "show";
-                    setTimeout(function(){{ x.className = x.className.replace("show", ""); }}, 4000);
-
-                    // Smooth map pan back to original center
-                    if (window.streamlitFoliumMap) {{
-                    window.streamlitFoliumMap.setView([{center_lat}, {center_lon}], 13, {{animate: true, duration: 1.5}});
-                    }}
+                    var toast = window.parent.document.getElementById("toast");
+                    if (toast) {
+                        toast.innerText = "⚠️ No nearby addresses found for the clicked location";
+                        toast.style.backgroundColor = "#e6b800";
+                        toast.className = "show";
+                        setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 4000);
+                    }
                     </script>
                 """, height=0)
 
+                # Reset to base map but do NOT trigger rerun immediately
+                st.session_state.selected = None
+                st.session_state.active_tab = "map"
+
             else:
+                # ✅ Found nearby address — go to results table
                 st.session_state.selected = nearest_row.to_dict()
                 st.session_state.active_tab = "table"
                 st.rerun()
 
         except Exception as e:
             msg = str(e).replace("'", "").replace('"', "")
+            # ❌ Error toast (red)
             st.components.v1.html(f"""
                 <script>
-                var x = document.getElementById("toast");
-                x.innerText = "❌ Error processing click: {msg}";
-                x.style.backgroundColor = "#cc0000";  // red
-                x.className = "show";
-                setTimeout(function(){{ x.className = x.className.replace("show", ""); }}, 4000);
-
-                // Smooth map pan back to original center
-                if (window.streamlitFoliumMap) {{
-                    window.streamlitFoliumMap.setView([{center_lat}, {center_lon}], 13, {{animate: true, duration: 1.5}});
+                var toast = window.parent.document.getElementById("toast");
+                if (toast) {{
+                    toast.innerText = "❌ Error processing click: {msg}";
+                    toast.style.backgroundColor = "#cc0000";
+                    toast.className = "show";
+                    setTimeout(function(){{ toast.className = toast.className.replace("show", ""); }}, 4000);
                 }}
                 </script>
             """, height=0)
+
+            # Reset to map on error
+            st.session_state.selected = None
+            st.session_state.active_tab = "map"
 
 with tab2:
     if not st.session_state.nearby_df.empty:
@@ -315,20 +301,23 @@ with tab2:
                 table_cols.append(c)
         display_df = nearby_df[table_cols].copy().fillna("")
 
-        sel_street = st.session_state.selected.get(street_col, "")
-        risk_val = st.session_state.selected.get(risk_col, "")
+        if st.session_state.selected:
+            sel_street = st.session_state.selected.get(street_col, "")
+            risk_val = st.session_state.selected.get(risk_col, "")
+        else:
+            sel_street, risk_val = "", ""
+
         risk_color = COLOR.get(risk_val, "gray")
 
-# Main header
+        # Header
         header_text_color = "white" if str(risk_val).strip().lower() == "very high" else "black"
-
         st.markdown(
             f"<div style='background:{risk_color};color:{header_text_color};font-size:16px;padding:8px;"
             f"border-radius:6px;text-align:center;'>"
             f"{len(display_df)} Addresses within {radius_toggle} ft of {sel_street} (Risk: {risk_val})</div>",
             unsafe_allow_html=True)
 
-# Secondary header with most recent inspection
+        # Secondary header
         if recent_insp_col and recent_insp_col in nearby_df.columns:
             recent_dates = pd.to_datetime(nearby_df[recent_insp_col], errors='coerce').dropna()
             recent_date = recent_dates.max().strftime("%m/%d/%Y") if not recent_dates.empty else "N/A"
@@ -342,8 +331,3 @@ with tab2:
         )
 
         st.dataframe(display_df.astype(str), use_container_width=True, hide_index=True)
-
-# -------------------------
-# Floating Back-to-Top Button
-# -------------------------
-#st.markdown('<a href="#top" class="fab">⬆️</a>', unsafe_allow_html=True)
