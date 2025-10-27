@@ -8,8 +8,10 @@ import io
 # -------------------------
 # App Configuration
 # -------------------------
-st.set_page_config(page_title="Risk-Level Neighborhood Map Viewer", layout="wide")
-st.title("🏠 Risk Level Neighborhood Map Viewer")
+
+st.set_page_config(page_title="Termite Risk Index Viewer", layout="wide")
+
+st.title("🏠 Termite Risk Index Viewer")
 
 # -------------------------
 # Global Style + Toast
