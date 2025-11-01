@@ -59,7 +59,7 @@ function showToast(msg) {
 # -------------------------
 @st.cache_data
 def load_data():
-    return pd.read_csv("master_with_inspection_counts_sm202510.csv")
+    return pd.read_csv("master_with_inspection_counts_202510_sj2.csv")
 
 df = load_data()
 
@@ -109,7 +109,12 @@ df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
 df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
 df = df.dropna(subset=[lat_col, lon_col]).reset_index(drop=True)
 
-COLOR = {"Very High": "#8B0000", "High": "#FF0000", "Moderate": "#FFA500", "Low": "#FFFF00"}
+COLOR = {
+    "Very High": "#8B0000",  # dark red
+    "High": "#FF0000",       # bright red
+    "Moderate": "#FFA500",   # orange
+    "Low": "#FFFF00"         # yellow
+}
 center_lat, center_lon = df[lat_col].mean(), df[lon_col].mean()
 
 # -------------------------
@@ -120,11 +125,11 @@ st.session_state.setdefault("nearby_df", pd.DataFrame())
 st.session_state.setdefault("active_tab", "map")
 
 # -------------------------
-# Distance Function (fixed)
+# Distance Function
 # -------------------------
 def haversine_vec(lat0, lon0, lats, lons):
-    """Vectorized haversine distance in meters between a single (lat0, lon0) and arrays of (lats, lons)."""
-    R = 6371000.0  # Earth radius in meters
+    """Vectorized haversine distance in meters."""
+    R = 6371000.0
     phi1 = np.radians(lat0)
     phi2 = np.radians(lats)
     dphi = np.radians(lats - lat0)
@@ -156,12 +161,9 @@ def build_focused_map_and_nearby(selected_dict):
     m = folium.Map(location=[lat, lon], zoom_start=18,
                    tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}", attr="Google")
 
-    # Draw a slightly larger visual circle (250 ft or 350 ft)
     draw_radius_m = radius_m * (1.25 if radius_toggle == 200 else 1.1667)
     folium.Circle(location=[lat, lon], radius=draw_radius_m, color="blue", fill=False, weight=2).add_to(m)
 
-
-    # Compute neighbors (true 200 / 300 ft)
     temp_df = df.copy()
     temp_df["dist_m"] = haversine_vec(lat, lon, temp_df[lat_col].values, temp_df[lon_col].values)
     nearby_df = temp_df[temp_df["dist_m"] <= radius_m].copy()
@@ -170,44 +172,20 @@ def build_focused_map_and_nearby(selected_dict):
         return m, nearby_df
 
     nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
-
-    # Draw lines first, then markers
-    for _, r in nearby_df.iterrows():
-        if np.isclose(float(r[lat_col]), lat) and np.isclose(float(r[lon_col]), lon):
-            continue
-        rc = COLOR.get(r.get(risk_col, ""), "gray")
-        folium.PolyLine([(r[lat_col], r[lon_col]), (lat, lon)],
-                        color=rc, weight=1.2, opacity=0.6).add_to(m)
-        folium.CircleMarker(location=[r[lat_col], r[lon_col]],
-                            radius=5, color="white", weight=1,
-                            fill=True, fill_color=rc, fill_opacity=0.9,
-                            popup=f"{r.get(street_col,'')}<br>Risk: {r.get(risk_col,'')}").add_to(m)
-    # Distance (ft) + sort by closest first
-    nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
     nearby_df = nearby_df.sort_values("dist_m", ascending=True).reset_index(drop=True)
     nearby_df["Distance Rank"] = nearby_df.index + 1
 
-    # Draw markers at TRUE coordinates only (no spiral)
+    # Draw all nearby markers using risk-level colors
     for _, r in nearby_df.iterrows():
         rc = COLOR.get(r.get(risk_col, ""), "gray")
-
-        # Optional: keep subtle line from center to the true location for context
         folium.PolyLine([(lat, lon), (r[lat_col], r[lon_col])],
                         color=rc, weight=1.2, opacity=0.45).add_to(m)
-
         folium.CircleMarker(location=[r[lat_col], r[lon_col]],
                             radius=6, color="white", weight=1,
                             fill=True, fill_color=rc, fill_opacity=0.95,
-                            popup=(
-                                f"<b>{r.get(street_col,'')}</b>"
-                            #    f"<br>Risk: {r.get(risk_col,'')}"
-                            #    f"<br>Rank (by distance): {int(r['Distance Rank'])}"
-                            #    f"<br>Distance: {int(r['Distance (ft)'])} ft"
-                            )).add_to(m)
+                            popup=(f"<b>{r.get(street_col,'')}</b><br>Risk: {r.get(risk_col,'')}")).add_to(m)
 
-
-    # Add pulsating center
- # last (so it doesn\'t hide neighbors)
+    # Pulsating center marker
     html = f"""
     <div style="background-color:{risk_color};
                 width:20px;height:20px;
@@ -223,7 +201,6 @@ def build_focused_map_and_nearby(selected_dict):
     """
     folium.Marker(location=[lat, lon], icon=folium.DivIcon(html=html)).add_to(m)
 
-    # Keep dashed line animation
     m.get_root().html.add_child(folium.Element("""
     <style>
     path.leaflet-interactive {
@@ -297,7 +274,6 @@ with tab1:
                 st.session_state.selected = nearest_row.to_dict()
                 st.session_state.active_tab = "table"
                 st.rerun()
-
         except Exception as e:
             msg = str(e).replace("'", "").replace('"', "")
             st.components.v1.html(f"""
@@ -324,22 +300,17 @@ with tab2:
         for c in [recent_insp_col, num_insp_col]:
             if c and c in nearby_df.columns:
                 table_cols.append(c)
-        # ---- Sort nearby_df for display: distance ASC (closest first) ----
+
         sort_df = nearby_df.copy()
         sort_df["_dist_ft_num"] = pd.to_numeric(sort_df["Distance (ft)"], errors="coerce")
         sort_df = sort_df.sort_values(by="_dist_ft_num", ascending=True, kind="stable")
         nearby_df = sort_df
-
         display_df = nearby_df[table_cols].copy().fillna("")
 
-        if st.session_state.selected:
-            sel_street = st.session_state.selected.get(street_col, "")
-            risk_val = st.session_state.selected.get(risk_col, "")
-        else:
-            sel_street, risk_val = "", ""
-
+        sel_street = st.session_state.selected.get(street_col, "")
+        risk_val = st.session_state.selected.get(risk_col, "")
         risk_color = COLOR.get(risk_val, "gray")
-        header_text_color = "white" if str(risk_val).strip().lower() == "very high" else "black"
+        header_text_color = "white" if str(risk_val).strip().lower() in ["very high", "high"] else "black"
 
         st.markdown(
             f"<div style='background:{risk_color};color:{header_text_color};font-size:16px;padding:8px;"
@@ -359,4 +330,16 @@ with tab2:
             unsafe_allow_html=True
         )
 
-        st.dataframe(display_df.astype(str), use_container_width=True, hide_index=True)
+        styled_df = (
+            display_df.style
+            .set_table_styles(
+                [{
+                    'selector': 'thead th',
+                    'props': [('background-color', risk_color),
+                              ('color', header_text_color),
+                              ('font-weight', 'bold')]
+                }]
+            )
+        )
+
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
