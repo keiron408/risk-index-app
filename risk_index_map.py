@@ -79,8 +79,8 @@ def find_col(cols, candidates):
 
 lat_col = find_col(df.columns, ["latitude", "lat"])
 lon_col = find_col(df.columns, ["longitude", "lon", "lng"])
-addr_col = find_col(df.columns, ["matched_address", "address", "full_address"])
-street_col = find_col(df.columns, ["street", "street_name"])
+addr_col = find_col(df.columns, ["matched_address", "address", "full_address", "search address"])
+street_col = find_col(df.columns, ["street", "street_name", "FullAddress"])
 risk_col = find_col(df.columns, ["risk_level", "risk", "category"])
 risk_score_col = find_col(df.columns, ["risk_score", "score"])
 recent_insp_col = find_col(df.columns, ["most recent inspection", "most_recent_insp"])
@@ -96,6 +96,7 @@ if not lat_col or not lon_col or not risk_col:
 with st.sidebar:
     st.header("⚙️ Controls")
     with st.expander("Search and Radius", expanded=False):
+        # Only 200 and 300 ft options
         radius_toggle = st.radio("Select radius (ft)", [200, 300], horizontal=True)
         radius_m = radius_toggle * 0.3048
         search_opts = sorted(df[addr_col].dropna().unique()) if addr_col else []
@@ -119,12 +120,15 @@ st.session_state.setdefault("nearby_df", pd.DataFrame())
 st.session_state.setdefault("active_tab", "map")
 
 # -------------------------
-# Distance Function
+# Distance Function (fixed)
 # -------------------------
 def haversine_vec(lat0, lon0, lats, lons):
-    R = 6371000.0
-    phi1, phi2 = np.radians(lat0), np.radians(lats)
-    dphi, dlambda = np.radians(lats - lat0), np.radians(lons - lon0)
+    """Vectorized haversine distance in meters between a single (lat0, lon0) and arrays of (lats, lons)."""
+    R = 6371000.0  # Earth radius in meters
+    phi1 = np.radians(lat0)
+    phi2 = np.radians(lats)
+    dphi = np.radians(lats - lat0)
+    dlambda = np.radians(lons - lon0)
     a = np.sin(dphi / 2.0) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2.0) ** 2
     return 2 * R * np.arcsin(np.sqrt(a))
 
@@ -148,11 +152,62 @@ def build_focused_map_and_nearby(selected_dict):
     lat, lon = float(selected_dict[lat_col]), float(selected_dict[lon_col])
     risk_val = selected_dict.get(risk_col, "")
     risk_color = COLOR.get(risk_val, "gray")
-    m = folium.Map(location=[lat, lon], zoom_start=19,
-                   tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}", attr="Google")
-    folium.Circle(location=[lat, lon], radius=radius_m, color="blue", fill=False, weight=2).add_to(m)
 
-    # Pulsating center
+    m = folium.Map(location=[lat, lon], zoom_start=18,
+                   tiles="https://mt1.google.com/vt/lyrs=y,h&x={x}&y={y}&z={z}", attr="Google")
+
+    # Draw a slightly larger visual circle (250 ft or 350 ft)
+    draw_radius_m = radius_m * (1.25 if radius_toggle == 200 else 1.1667)
+    folium.Circle(location=[lat, lon], radius=draw_radius_m, color="blue", fill=False, weight=2).add_to(m)
+
+
+    # Compute neighbors (true 200 / 300 ft)
+    temp_df = df.copy()
+    temp_df["dist_m"] = haversine_vec(lat, lon, temp_df[lat_col].values, temp_df[lon_col].values)
+    nearby_df = temp_df[temp_df["dist_m"] <= radius_m].copy()
+
+    if nearby_df.empty:
+        return m, nearby_df
+
+    nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
+
+    # Draw lines first, then markers
+    for _, r in nearby_df.iterrows():
+        if np.isclose(float(r[lat_col]), lat) and np.isclose(float(r[lon_col]), lon):
+            continue
+        rc = COLOR.get(r.get(risk_col, ""), "gray")
+        folium.PolyLine([(r[lat_col], r[lon_col]), (lat, lon)],
+                        color=rc, weight=1.2, opacity=0.6).add_to(m)
+        folium.CircleMarker(location=[r[lat_col], r[lon_col]],
+                            radius=5, color="white", weight=1,
+                            fill=True, fill_color=rc, fill_opacity=0.9,
+                            popup=f"{r.get(street_col,'')}<br>Risk: {r.get(risk_col,'')}").add_to(m)
+    # Distance (ft) + sort by closest first
+    nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
+    nearby_df = nearby_df.sort_values("dist_m", ascending=True).reset_index(drop=True)
+    nearby_df["Distance Rank"] = nearby_df.index + 1
+
+    # Draw markers at TRUE coordinates only (no spiral)
+    for _, r in nearby_df.iterrows():
+        rc = COLOR.get(r.get(risk_col, ""), "gray")
+
+        # Optional: keep subtle line from center to the true location for context
+        folium.PolyLine([(lat, lon), (r[lat_col], r[lon_col])],
+                        color=rc, weight=1.2, opacity=0.45).add_to(m)
+
+        folium.CircleMarker(location=[r[lat_col], r[lon_col]],
+                            radius=6, color="white", weight=1,
+                            fill=True, fill_color=rc, fill_opacity=0.95,
+                            popup=(
+                                f"<b>{r.get(street_col,'')}</b>"
+                            #    f"<br>Risk: {r.get(risk_col,'')}"
+                            #    f"<br>Rank (by distance): {int(r['Distance Rank'])}"
+                            #    f"<br>Distance: {int(r['Distance (ft)'])} ft"
+                            )).add_to(m)
+
+
+    # Add pulsating center
+ # last (so it doesn\'t hide neighbors)
     html = f"""
     <div style="background-color:{risk_color};
                 width:20px;height:20px;
@@ -168,26 +223,7 @@ def build_focused_map_and_nearby(selected_dict):
     """
     folium.Marker(location=[lat, lon], icon=folium.DivIcon(html=html)).add_to(m)
 
-    distances = haversine_vec(lat, lon, df[lat_col].values, df[lon_col].values)
-    df["dist_m"] = distances
-    nearby_df = df[df["dist_m"] <= radius_m].copy()
-    if nearby_df.empty:
-        return m, nearby_df
-
-    nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
-
-    # Add neighbors + animated lines
-    for _, r in nearby_df.iterrows():
-        if np.isclose(float(r[lat_col]), lat) and np.isclose(float(r[lon_col]), lon):
-            continue
-        rc = COLOR.get(r.get(risk_col, ""), "gray")
-        folium.CircleMarker(location=[r[lat_col], r[lon_col]],
-                            radius=5, color="white", weight=1,
-                            fill=True, fill_color=rc, fill_opacity=0.9,
-                            popup=f"{r.get(street_col,'')}<br>Risk: {r.get(risk_col,'')}").add_to(m)
-        folium.PolyLine([(r[lat_col], r[lon_col]), (lat, lon)],
-                        color=rc, weight=1.2, opacity=0.6).add_to(m)
-
+    # Keep dashed line animation
     m.get_root().html.add_child(folium.Element("""
     <style>
     path.leaflet-interactive {
@@ -235,19 +271,15 @@ with tab1:
             st.components.v1.html(f"<script>showToast('⚠️ No nearby addresses found near {addr}')</script>", height=0)
     map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
-    # Handle map clicks
     if map_data and map_data.get("last_clicked") is not None:
         try:
             click_lat = map_data["last_clicked"]["lat"]
             click_lon = map_data["last_clicked"]["lng"]
-
-            # Compute nearest known parcel
             distances = haversine_vec(click_lat, click_lon, df[lat_col].values, df[lon_col].values)
             nearest_idx = np.argmin(distances)
             nearest_row = df.iloc[nearest_idx]
 
             if distances[nearest_idx] > radius_m:
-                # ⚠️ Show yellow warning toast and stay on map
                 st.components.v1.html("""
                     <script>
                     var toast = window.parent.document.getElementById("toast");
@@ -259,20 +291,15 @@ with tab1:
                     }
                     </script>
                 """, height=0)
-
-                # Reset to base map but do NOT trigger rerun immediately
                 st.session_state.selected = None
                 st.session_state.active_tab = "map"
-
             else:
-                # ✅ Found nearby address — go to results table
                 st.session_state.selected = nearest_row.to_dict()
                 st.session_state.active_tab = "table"
                 st.rerun()
 
         except Exception as e:
             msg = str(e).replace("'", "").replace('"', "")
-            # ❌ Error toast (red)
             st.components.v1.html(f"""
                 <script>
                 var toast = window.parent.document.getElementById("toast");
@@ -284,8 +311,6 @@ with tab1:
                 }}
                 </script>
             """, height=0)
-
-            # Reset to map on error
             st.session_state.selected = None
             st.session_state.active_tab = "map"
 
@@ -299,6 +324,12 @@ with tab2:
         for c in [recent_insp_col, num_insp_col]:
             if c and c in nearby_df.columns:
                 table_cols.append(c)
+        # ---- Sort nearby_df for display: distance ASC (closest first) ----
+        sort_df = nearby_df.copy()
+        sort_df["_dist_ft_num"] = pd.to_numeric(sort_df["Distance (ft)"], errors="coerce")
+        sort_df = sort_df.sort_values(by="_dist_ft_num", ascending=True, kind="stable")
+        nearby_df = sort_df
+
         display_df = nearby_df[table_cols].copy().fillna("")
 
         if st.session_state.selected:
@@ -308,16 +339,14 @@ with tab2:
             sel_street, risk_val = "", ""
 
         risk_color = COLOR.get(risk_val, "gray")
-
-        # Header
         header_text_color = "white" if str(risk_val).strip().lower() == "very high" else "black"
+
         st.markdown(
             f"<div style='background:{risk_color};color:{header_text_color};font-size:16px;padding:8px;"
             f"border-radius:6px;text-align:center;'>"
             f"{len(display_df)} Addresses within {radius_toggle} ft of {sel_street} (Risk: {risk_val})</div>",
             unsafe_allow_html=True)
 
-        # Secondary header
         if recent_insp_col and recent_insp_col in nearby_df.columns:
             recent_dates = pd.to_datetime(nearby_df[recent_insp_col], errors='coerce').dropna()
             recent_date = recent_dates.max().strftime("%m/%d/%Y") if not recent_dates.empty else "N/A"
