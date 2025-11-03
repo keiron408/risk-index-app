@@ -74,42 +74,6 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-# -------------------------
-# Floating "Back to Top" Button
-# -------------------------
-st.markdown("""
-<style>
-#back-to-top {
-    position: fixed;
-    bottom: 65px;
-    right: 20px;
-    background-color: #0078FF;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 48px;
-    height: 48px;
-    font-size: 22px;
-    cursor: pointer;
-    box-shadow: 0 3px 6px rgba(0,0,0,0.2);
-    z-index: 9999;
-    transition: background-color 0.3s, transform 0.2s;
-}
-#back-to-top:hover {
-    background-color: #005fcc;
-    transform: scale(1.08);
-}
-</style>
-<button id="back-to-top" title="Go to top">⬆️</button>
-<script>
-const topButton = window.parent.document.getElementById("back-to-top");
-if (topButton) {
-    topButton.addEventListener("click", () => {
-        window.parent.scrollTo({ top: 0, behavior: "smooth" });
-    });
-}
-</script>
-""", unsafe_allow_html=True)
 
 # -------------------------
 # Load Data
