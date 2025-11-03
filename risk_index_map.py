@@ -54,6 +54,27 @@ function showToast(msg) {
 </script>
 """, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Make controls and map stack cleanly on mobile */
+@media (max-width: 768px) {
+    div[data-testid="column"] {
+        display: block !important;
+        width: 100% !important;
+    }
+    .stSelectbox, .stRadio {
+        width: 100% !important;
+    }
+    .st-emotion-cache-ocqkz7 {
+        padding: 0 !important;
+    }
+    iframe, .stIFrame {
+        width: 100% !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # -------------------------
 # Load Data
 # -------------------------
@@ -91,16 +112,61 @@ if not lat_col or not lon_col or not risk_col:
     st.stop()
 
 # -------------------------
-# Sidebar Controls
+# Top Controls (Above Map)
 # -------------------------
-with st.sidebar:
-    st.header("⚙️ Controls")
-    with st.expander("Search and Radius", expanded=False):
-        # Only 200 and 300 ft options
-        radius_toggle = st.radio("Select radius (ft)", [200, 300], horizontal=True)
-        radius_m = radius_toggle * 0.3048
-        search_opts = sorted(df[addr_col].dropna().unique()) if addr_col else []
-        search_choice = st.selectbox("🔍 Search Address", [""] + search_opts)
+st.markdown("### 🔍 Search Options")
+
+# CSS + JS for scrolling, placeholder styling, and click behavior
+st.markdown("""
+    <style>
+    /* Allow dropdown to expand and scroll smoothly */
+    div[data-baseweb="select"] > div {
+        max-height: 260px !important;
+        overflow-y: auto !important;
+    }
+    /* Gray placeholder text */
+    div[data-baseweb="select"] span {
+        color: #888 !important;
+    }
+    </style>
+    <script>
+    // Remove placeholder style once user clicks inside the select box
+    const observer = new MutationObserver(() => {
+        const el = window.parent.document.querySelector('div[data-baseweb="select"] span');
+        if (el && el.innerText.includes("Start typing")) {
+            el.parentElement.addEventListener("click", () => {
+                el.style.color = "#111";
+                el.innerText = "";
+            }, { once: true });
+        }
+    });
+    observer.observe(window.parent.document.body, { childList: true, subtree: true });
+    </script>
+""", unsafe_allow_html=True)
+
+@st.cache_data
+def get_search_options(df, addr_col):
+    """Cache sorted unique address list so it loads instantly after the first run."""
+    return sorted(df[addr_col].dropna().unique())
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    search_opts = get_search_options(df, addr_col)
+    search_placeholder = "Start typing an address or select from map..."
+    search_choice = st.selectbox(
+        "Search Address",
+        [search_placeholder] + search_opts,
+        key="search_box",
+        label_visibility="collapsed"
+    )
+    # Treat placeholder as no selection
+    if search_choice == search_placeholder:
+        search_choice = ""
+
+with col2:
+    radius_toggle = st.radio("Radius (ft)", [200, 300], horizontal=True)
+radius_m = radius_toggle * 0.3048
 
 # -------------------------
 # Prepare Data
@@ -216,16 +282,22 @@ def build_focused_map_and_nearby(selected_dict):
     return m, nearby_df
 
 # -------------------------
-# Responsive Map Sizing
+# Responsive Map Sizing (Optimized for Mobile)
 # -------------------------
 def get_map_dimensions():
+    """Return dynamic width and height depending on device width and orientation."""
     try:
         ua = st.runtime.scriptrunner.script_run_context.session_info.user_agent
         if "Mobile" in ua:
-            return 350, 500
+            # Compact vertical layout for phones
+            return 360, 420
+        elif "Tablet" in ua:
+            # Slightly larger for tablets
+            return 720, 520
     except Exception:
         pass
-    return 900, 600
+    # Default for desktop
+    return 1000, 600
 
 map_width, map_height = get_map_dimensions()
 
