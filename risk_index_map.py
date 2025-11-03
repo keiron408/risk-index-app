@@ -459,53 +459,57 @@ import streamlit.components.v1 as components
 
 components.html(
 """
-<div style="
-    background: linear-gradient(90deg, #FFDEE9, #B5FFFC); 
-    padding: 2px; 
-    border-radius: 10px;
-    max-width: 100%;
-    margin: auto;
-    margin-bottom: 5px;
-"></div>
+<style>
+/* Hover shadow for desktop */
+.termite-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+@media (max-width: 600px) {
+    .termite-card {
+        box-shadow: none !important;
+    }
+}
+</style>
 
-<div style="
-    background-color: #f9f9f9; 
-    padding: 15px; 
-    border-radius: 8px; 
+<div class="termite-card" style="
+    background-color: #f9f9f9;
+    padding: 10px;
+    border-radius: 8px;
     border: 1px solid #e0e0e0;
     max-width: 100%;
     box-sizing: border-box;
     margin: auto;
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.3;
     transition: box-shadow 0.3s ease;
 ">
-    <div style="text-align:center; margin-bottom:10px;">
-        <span style="font-size:28px;">🛡️</span>
+    <div style="text-align:center; margin-bottom:8px;">
+        <span style="font-size:24px;">🛡️</span>
     </div>
-    <h3 style="text-align:center; margin-bottom:12px; font-size:16px;">Termite Risk Index Methodology</h3>
+    <h3 style="text-align:center; margin:4px 0 8px 0; font-size:15px;">Termite Risk Index Methodology</h3>
     
-    <div style="display: flex; align-items: flex-start; margin-bottom:8px; flex-wrap: wrap;">
-        <span style="font-size: 24px; color:#FF6B6B; margin-right:8px;">📍</span>
-        <span><strong>Proximity:</strong> How close nearby properties with termite history are to the selected property.</span>
-    </div>
-    
-    <div style="display: flex; align-items: flex-start; margin-bottom:8px; flex-wrap: wrap;">
-        <span style="font-size: 24px; color:#FFA94D; margin-right:8px;">⏱</span>
-        <span><strong>Recency:</strong> How recent termite inspections or reports have occurred.</span>
+    <div style="display: flex; align-items: flex-start; margin-bottom:4px; flex-wrap: wrap;">
+        <span style="font-size: 20px; color:#FF6B6B; margin-right:6px;">📍</span>
+        <span><strong>Proximity:</strong> Distance to nearby properties with termite history.</span>
     </div>
     
-    <div style="display: flex; align-items: flex-start; margin-bottom:8px; flex-wrap: wrap;">
-        <span style="font-size: 24px; color:#4D96FF; margin-right:8px;">🔁</span>
-        <span><strong>Frequency:</strong> How often termite activity has been reported in the surrounding area.</span>
+    <div style="display: flex; align-items: flex-start; margin-bottom:4px; flex-wrap: wrap;">
+        <span style="font-size: 20px; color:#FFA94D; margin-right:6px;">⏱</span>
+        <span><strong>Recency:</strong> How recent inspections or reports occurred.</span>
+    </div>
+    
+    <div style="display: flex; align-items: flex-start; margin-bottom:4px; flex-wrap: wrap;">
+        <span style="font-size: 20px; color:#4D96FF; margin-right:6px;">🔁</span>
+        <span><strong>Frequency:</strong> How often termite activity has been reported nearby.</span>
     </div>
     
     <div style="display: flex; align-items: flex-start; flex-wrap: wrap;">
-        <span style="font-size: 24px; color:#6BCB77; margin-right:8px;">🌐</span>
-        <span><strong>Density:</strong> Relative number of nearby structures capable of hosting termites within swarm range.</span>
+        <span style="font-size: 20px; color:#6BCB77; margin-right:6px;">🌐</span>
+        <span><strong>Density:</strong> Number of nearby structures capable of hosting termites relative to the vicinity layout.</span>
     </div>
 </div>
 """,
-height=320,
+height=260,
 scrolling=False,
 )
+
