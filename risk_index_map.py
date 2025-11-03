@@ -53,6 +53,42 @@ function showToast(msg) {
 }
 </script>
 """, unsafe_allow_html=True)
+# -------------------------
+# Floating "Back to Top" Button
+# -------------------------
+st.markdown("""
+<style>
+#back-to-top {
+    position: fixed;
+    bottom: 65px;
+    right: 20px;
+    background-color: #0078FF;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    font-size: 22px;
+    cursor: pointer;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+    z-index: 9999;
+    transition: background-color 0.3s, transform 0.2s;
+}
+#back-to-top:hover {
+    background-color: #005fcc;
+    transform: scale(1.08);
+}
+</style>
+<button id="back-to-top" title="Go to top">⬆️</button>
+<script>
+const topButton = window.parent.document.getElementById("back-to-top");
+if (topButton) {
+    topButton.addEventListener("click", () => {
+        window.parent.scrollTo({ top: 0, behavior: "smooth" });
+    });
+}
+</script>
+""", unsafe_allow_html=True)
 
 st.markdown("""
 <style>
@@ -415,3 +451,61 @@ with tab2:
         )
 
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+# --- AFTER all tab code ---
+# Place this OUTSIDE of tab1 and tab2, at the bottom of your script
+
+import streamlit.components.v1 as components
+
+components.html(
+"""
+<div style="
+    background: linear-gradient(90deg, #FFDEE9, #B5FFFC); 
+    padding: 2px; 
+    border-radius: 10px;
+    max-width: 100%;
+    margin: auto;
+    margin-bottom: 5px;
+"></div>
+
+<div style="
+    background-color: #f9f9f9; 
+    padding: 15px; 
+    border-radius: 8px; 
+    border: 1px solid #e0e0e0;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: auto;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: box-shadow 0.3s ease;
+">
+    <div style="text-align:center; margin-bottom:10px;">
+        <span style="font-size:28px;">🛡️</span>
+    </div>
+    <h3 style="text-align:center; margin-bottom:12px; font-size:16px;">Termite Risk Index Methodology</h3>
+    
+    <div style="display: flex; align-items: flex-start; margin-bottom:8px; flex-wrap: wrap;">
+        <span style="font-size: 24px; color:#FF6B6B; margin-right:8px;">📍</span>
+        <span><strong>Proximity:</strong> How close nearby properties with termite history are to the selected property.</span>
+    </div>
+    
+    <div style="display: flex; align-items: flex-start; margin-bottom:8px; flex-wrap: wrap;">
+        <span style="font-size: 24px; color:#FFA94D; margin-right:8px;">⏱</span>
+        <span><strong>Recency:</strong> How recent termite inspections or reports have occurred.</span>
+    </div>
+    
+    <div style="display: flex; align-items: flex-start; margin-bottom:8px; flex-wrap: wrap;">
+        <span style="font-size: 24px; color:#4D96FF; margin-right:8px;">🔁</span>
+        <span><strong>Frequency:</strong> How often termite activity has been reported in the surrounding area.</span>
+    </div>
+    
+    <div style="display: flex; align-items: flex-start; flex-wrap: wrap;">
+        <span style="font-size: 24px; color:#6BCB77; margin-right:8px;">🌐</span>
+        <span><strong>Density:</strong> Relative number of nearby structures capable of hosting termites within swarm range.</span>
+    </div>
+</div>
+""",
+height=320,
+scrolling=False,
+)
