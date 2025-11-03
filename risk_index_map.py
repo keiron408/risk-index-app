@@ -464,10 +464,34 @@ components.html(
 .termite-card:hover {
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
+/* Mobile adjustments */
 @media (max-width: 600px) {
     .termite-card {
         box-shadow: none !important;
+        font-size: 12px;
+        line-height: 1.2;
     }
+    .termite-card .termite-row span.icon {
+        font-size: 16px;
+        margin-right: 4px;
+    }
+    .termite-card .termite-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 3px;
+    }
+}
+.termite-row {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+.termite-row span.icon {
+    font-size: 20px;
+    margin-right: 6px;
+    flex-shrink: 0;
 }
 </style>
 
@@ -479,37 +503,36 @@ components.html(
     max-width: 100%;
     box-sizing: border-box;
     margin: auto;
-    font-size: 13px;
-    line-height: 1.3;
     transition: box-shadow 0.3s ease;
 ">
-    <div style="text-align:center; margin-bottom:8px;">
+    <div style="text-align:center; margin-bottom:6px;">
         <span style="font-size:24px;">🛡️</span>
     </div>
-    <h3 style="text-align:center; margin:4px 0 8px 0; font-size:15px;">Termite Risk Index Methodology</h3>
-    
-    <div style="display: flex; align-items: flex-start; margin-bottom:4px; flex-wrap: wrap;">
-        <span style="font-size: 20px; color:#FF6B6B; margin-right:6px;">📍</span>
+    <h3 style="text-align:center; margin:4px 0 6px 0; font-size:15px;">Termite Risk Index Methodology</h3>
+
+    <div class="termite-row">
+        <span class="icon" style="color:#FF6B6B;">📍</span>
         <span><strong>Proximity:</strong> Distance to nearby properties with termite history.</span>
     </div>
     
-    <div style="display: flex; align-items: flex-start; margin-bottom:4px; flex-wrap: wrap;">
-        <span style="font-size: 20px; color:#FFA94D; margin-right:6px;">⏱</span>
+    <div class="termite-row">
+        <span class="icon" style="color:#FFA94D;">⏱</span>
         <span><strong>Recency:</strong> How recent inspections or reports occurred.</span>
     </div>
     
-    <div style="display: flex; align-items: flex-start; margin-bottom:4px; flex-wrap: wrap;">
-        <span style="font-size: 20px; color:#4D96FF; margin-right:6px;">🔁</span>
+    <div class="termite-row">
+        <span class="icon" style="color:#4D96FF;">🔁</span>
         <span><strong>Frequency:</strong> How often termite activity has been reported nearby.</span>
     </div>
     
-    <div style="display: flex; align-items: flex-start; flex-wrap: wrap;">
-        <span style="font-size: 20px; color:#6BCB77; margin-right:6px;">🌐</span>
+    <div class="termite-row">
+        <span class="icon" style="color:#6BCB77;">🌐</span>
         <span><strong>Density:</strong> Number of nearby structures capable of hosting termites relative to the vicinity layout.</span>
     </div>
 </div>
 """,
-height=260,
+height=220,
 scrolling=False,
 )
+
 
