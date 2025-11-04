@@ -413,4 +413,10 @@ with tab2:
                 }]
             )
         )
- 
+
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            hide_index=True,
+            height=500  # or adjust as needed
+        )
