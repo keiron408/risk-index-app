@@ -153,7 +153,7 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     search_opts = get_search_options(df, addr_col)
-    search_placeholder = "Enter address or select from map..."
+    search_placeholder = "Enter address / select from map..."
     search_choice = st.selectbox(
         "Search Address",
         [search_placeholder] + search_opts,
