@@ -407,6 +407,8 @@ map_width, map_height = get_map_dimensions()
 if st.session_state.selected is None:
     m = build_base_map()
     map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
+    st.write("DEBUG MAP DATA:", map_data)
+
 
     handle_map_click(map_data)
 
