@@ -351,7 +351,7 @@ def build_focused_map_and_nearby(sel):
             opacity=0.4
         ).add_to(m)
         folium.CircleMarker(
-            (r[lat_col], r[lon_col]],
+            (r[lat_col], r[lon_col]),
             radius=6,
             color="white",
             weight=1,
