@@ -250,8 +250,12 @@ def haversine_vec(lat0, lon0, lats, lons):
 if search_choice:
     match = df[df[addr_col] == search_choice]
     if not match.empty:
+        # Update selected record
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None   # <-- CRITICAL FIX
+
+        # Reset map click detection COMPLETELY so next map click is ALWAYS new
+        st.session_state.map_last_click = {"lat": None, "lon": None}
+        st.session_state._last_click_was_from_search = True
 
 # ============================================================
 # SAFE MAP CLICK HANDLER
