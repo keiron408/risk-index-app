@@ -322,7 +322,57 @@ with tab1:
                 f"<script>showToast('⚠️ No nearby addresses found near {addr}')</script>",
                 height=0
             )
-    st_folium(m, width=map_width, height=map_height, use_container_width=True)
+
+    # IMPORTANT: capture map interaction results
+    map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
+
+    # ---- HANDLE MAP CLICK SELECTION ----
+    if map_data and map_data.get("last_clicked") is not None:
+        try:
+            click_lat = map_data["last_clicked"]["lat"]
+            click_lon = map_data["last_clicked"]["lng"]
+
+            # Compute nearest address
+            distances = haversine_vec(
+                click_lat, click_lon,
+                df[lat_col].values,
+                df[lon_col].values
+            )
+            nearest_idx = np.argmin(distances)
+            nearest_row = df.iloc[nearest_idx]
+
+            # If clicked too far from all addresses, warn
+            if distances[nearest_idx] > radius_m:
+                st.components.v1.html("""
+                    <script>
+                    var toast = window.parent.document.getElementById("toast");
+                    if (toast) {
+                        toast.innerText = "⚠️ No nearby addresses found for the clicked location";
+                        toast.style.backgroundColor = "#e6b800";
+                        toast.className = "show";
+                        setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 4000);
+                    }
+                    </script>
+                """, height=0)
+            else:
+                # Success → Update selected address + switch tabs
+                st.session_state.selected = nearest_row.to_dict()
+                st.session_state.active_tab = "table"
+                st.rerun()
+
+        except Exception as e:
+            msg = str(e).replace("'", "").replace('"', "")
+            st.components.v1.html(f"""
+                <script>
+                var toast = window.parent.document.getElementById("toast");
+                if (toast) {{
+                    toast.innerText = "❌ Error processing click: {msg}";
+                    toast.style.backgroundColor = "#cc0000";
+                    toast.className = "show";
+                    setTimeout(function(){{ toast.className = toast.className.replace("show", ""); }}, 4000);
+                }}
+                </script>
+            """, height=0)
 
 # -------------------------
 # TABLE TAB
