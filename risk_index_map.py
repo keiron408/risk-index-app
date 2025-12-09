@@ -98,7 +98,7 @@ if not street_col:
     street_col = addr_col
 
 # ============================================================
-# RISK NORMALIZATION (UI FIX)
+# RISK NORMALIZATION
 # ============================================================
 df[risk_col] = (
     df[risk_col]
@@ -181,17 +181,15 @@ with colB:
 
 radius_m = radius_ft * 0.3048
 
-# Handle search selection
 if search_choice:
     match = df[df[search_col] == search_choice] if search_col else df[df[addr_col] == search_choice]
-
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
         st.session_state.map_last_click = None
-        st.session_state.pending_first_click = True  # FIX flashing after search
+        st.session_state.pending_first_click = True
 
 # ============================================================
-# MAP BUILDERS (unchanged)
+# MAP BUILDERS
 # ============================================================
 def build_base_map():
     m = folium.Map(
@@ -226,6 +224,7 @@ def build_focused_map_and_nearby(selected):
         weight=2,
     ).add_to(m)
 
+    # Compute nearby points
     temp = df.copy()
     temp["dist_m"] = haversine_vec(lat, lon, temp[lat_col], temp[lon_col])
     near = temp[temp["dist_m"] <= radius_m].copy()
@@ -236,6 +235,20 @@ def build_focused_map_and_nearby(selected):
     near["Distance (ft)"] = (near["dist_m"] * 3.28084).round(0).astype("Int64")
     near = near.sort_values("dist_m").reset_index(drop=True)
 
+    # -----------------------------------------
+    # RESTORED: dashed radial inward lines
+    # -----------------------------------------
+    for _, r in near.iterrows():
+        rc = COLOR.get(r.get(risk_col, ""), "gray")
+        folium.PolyLine(
+            locations=[(lat, lon), (r[lat_col], r[lon_col])],
+            color=rc,
+            weight=1.5,
+            opacity=0.5,
+            dash_array="5, 5"
+        ).add_to(m)
+
+    # Nearby markers
     for _, r in near.iterrows():
         c = COLOR.get(r.get(risk_col, ""), "gray")
         folium.CircleMarker(
@@ -262,7 +275,7 @@ def build_focused_map_and_nearby(selected):
     return m, near
 
 # ============================================================
-# CLICK HANDLER (with first-click-after-search fix)
+# CLICK HANDLER
 # ============================================================
 def handle_map_click(map_data):
     if not isinstance(map_data, dict):
@@ -277,13 +290,13 @@ def handle_map_click(map_data):
     if lat is None or lon is None:
         return
 
-    # FIRST CLICK AFTER SEARCH → ignore (UI improvement)
+    # Prevent flashing after search
     if st.session_state.pending_first_click:
         st.session_state.pending_first_click = False
         st.session_state.map_last_click = {"lat": lat, "lon": lon}
         return
 
-    # Duplicate click guard
+    # Avoid duplicate-click reruns
     last = st.session_state.map_last_click
     if isinstance(last, dict):
         if abs(last["lat"] - lat) < 1e-9 and abs(last["lon"] - lon) < 1e-9:
@@ -312,7 +325,7 @@ def legend():
     """, unsafe_allow_html=True)
 
 # ============================================================
-# NO SELECTION → INITIAL MAP
+# INITIAL MAP
 # ============================================================
 if st.session_state.selected is None:
     m = build_base_map()
@@ -326,7 +339,7 @@ if st.session_state.selected is None:
     st.stop()
 
 # ============================================================
-# MAP + TABLE LAYOUT
+# MAP + TABLE
 # ============================================================
 map_col, table_col = st.columns([1.3, 1])
 
@@ -343,8 +356,8 @@ with map_col:
     legend()
 
 with table_col:
-    df2 = st.session_state.nearby_df
 
+    df2 = st.session_state.nearby_df
     if df2.empty:
         st.warning("No nearby addresses.")
         st.stop()
@@ -356,12 +369,53 @@ with table_col:
 
     df2 = df2[table_cols].fillna("")
 
-    # --- FORCE HEADER ROW TO APPEAR ---
+    # SUMMARY BANNER ABOVE TABLE
+    sel_addr = st.session_state.selected.get(street_col, "")
+    sel_risk = st.session_state.selected.get(risk_col, "")
+    banner_color = COLOR.get(sel_risk, "#444")
+    text_color = "white" if sel_risk in ["High", "Very High"] else "black"
+
+    st.markdown(
+        f"""
+        <div style="padding:10px 14px;
+                    margin-bottom:8px;
+                    border-radius:6px;
+                    background:{banner_color};
+                    color:{text_color};
+                    font-size:15px;
+                    font-weight:bold;
+                    text-align:center;">
+            {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
+            (Risk level: {sel_risk})
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # MOST RECENT INSPECTION BAR
+    if recent_insp_col in df2.columns:
+        recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
+        recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
+
+        st.markdown(
+            f"""
+            <div style="padding:8px;
+                        margin-bottom:6px;
+                        border-radius:6px;
+                        background:#eee;
+                        color:#333;
+                        text-align:center;
+                        font-size:13px;">
+                Most recent inspection among nearby addresses: {recent_text}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    # FORCE HEADER ROW TO SHOW
     df2 = df2.rename(columns={col: col for col in df2.columns})
 
-    # ============================================================
-    # ROW COLORING (selected + lightened for nearby rows)
-    # ============================================================
+    # ROW COLORING (selected = bold, others lightened)
     def lighten(hex_color, factor=0.82):
         hex_color = hex_color.lstrip("#")
         r, g, b = (int(hex_color[i:i+2], 16) for i in (0,2,4))
@@ -370,15 +424,15 @@ with table_col:
         b = int(b + (255 - b)*factor)
         return f"rgb({r},{g},{b})"
 
-    sel_addr = st.session_state.selected.get(street_col, "")
+    selected_address = st.session_state.selected.get(street_col, "")
 
     def highlight_rows(row):
         addr = str(row.get(street_col, ""))
         level = row.get(risk_col, "")
         base = COLOR.get(level, "#DDD")
 
-        if addr == sel_addr:
-            txt = "white" if level in ["High","Very High"] else "black"
+        if addr == selected_address:
+            txt = "white" if level in ["High", "Very High"] else "black"
             return [f"background-color:{base};color:{txt};font-weight:bold;"] * len(row)
 
         return [f"background-color:{lighten(base)};color:black;"] * len(row)
@@ -388,7 +442,7 @@ with table_col:
         .apply(highlight_rows, axis=1)
         .set_table_styles([{
             "selector": "thead th",
-            "props": [("background-color", "#444"), ("color", "white"), ("font-weight", "bold")]
+            "props": [("background-color", "#333"), ("color", "white"), ("font-weight", "bold")]
         }])
     )
 
