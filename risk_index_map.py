@@ -65,9 +65,6 @@ st.markdown("""
     .stSelectbox, .stRadio {
         width: 100% !important;
     }
-    .st-emotion-cache-ocqkz7 {
-        padding: 0 !important;
-    }
     iframe, .stIFrame {
         width: 100% !important;
     }
@@ -101,7 +98,7 @@ def find_col(cols, candidates):
 lat_col = find_col(df.columns, ["latitude", "lat"])
 lon_col = find_col(df.columns, ["longitude", "lon", "lng"])
 addr_col = find_col(df.columns, ["matched_address", "address", "full_address", "search address"])
-street_col = find_col(df.columns, ["street", "street_name", "FullAddress"])
+street_col = find_col(df.columns, ["street", "street_name", "fulladdress"])
 risk_col = find_col(df.columns, ["risk_level", "risk", "category"])
 risk_score_col = find_col(df.columns, ["risk_score", "score"])
 recent_insp_col = find_col(df.columns, ["most recent inspection", "most_recent_insp"])
@@ -112,33 +109,32 @@ if not lat_col or not lon_col or not risk_col:
     st.stop()
 
 # -------------------------
+# 🔥 NORMALIZE RISK VALUES HERE (Critical Fix)
+# -------------------------
+df[risk_col] = (
+    df[risk_col]
+    .astype(str)
+    .str.strip()
+    .str.replace("_", " ")
+    .str.replace("-", " ")
+    .str.title()
+)
+
+df[risk_col] = df[risk_col].replace({
+    "High Risk": "High",
+    "Moderate Risk": "Moderate",
+    "Low Risk": "Low",
+    "Very High Risk": "Very High",
+    "Very Highrisk": "Very High",
+    "Veryhigh": "Very High",
+    "Moderaterisk": "Moderate",
+    "Lowrisk": "Low"
+})
+
+# -------------------------
 # Search Box & Controls
 # -------------------------
 st.markdown("### 🔍 Search Options")
-
-st.markdown("""
-<style>
-div[data-baseweb="select"] > div {
-    max-height: 260px !important;
-    overflow-y: auto !important;
-}
-div[data-baseweb="select"] span {
-    color: #888 !important;
-}
-</style>
-<script>
-const observer = new MutationObserver(() => {
-    const el = window.parent.document.querySelector('div[data-baseweb="select"] span');
-    if (el && el.innerText.includes("Start typing")) {
-        el.parentElement.addEventListener("click", () => {
-            el.style.color = "#111";
-            el.innerText = "";
-        }, { once: true });
-    }
-});
-observer.observe(window.parent.document.body, { childList: true, subtree: true });
-</script>
-""", unsafe_allow_html=True)
 
 @st.cache_data
 def get_search_options(df, addr_col):
@@ -170,6 +166,7 @@ df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
 df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
 df = df.dropna(subset=[lat_col, lon_col]).reset_index(drop=True)
 
+# Colors
 COLOR = {
     "Very High": "#8B0000",
     "High": "#FF0000",
@@ -191,10 +188,10 @@ st.session_state.setdefault("active_tab", "map")
 # -------------------------
 def haversine_vec(lat0, lon0, lats, lons):
     R = 6371000.0
+    dphi = np.radians(lats - lat0)
+    dlambda = np.radians(lons - lon0)
     phi1 = np.radians(lat0)
     phi2 = np.radians(lats)
-    dlambda = np.radians(lons - lon0)
-    dphi = np.radians(lats - lat0)
     a = np.sin(dphi/2)**2 + np.cos(phi1)*np.cos(phi2)*np.sin(dlambda/2)**2
     return 2 * R * np.arcsin(np.sqrt(a))
 
@@ -241,17 +238,17 @@ def build_focused_map_and_nearby(selected_dict):
     ).add_to(m)
 
     temp_df = df.copy()
-    temp_df["dist_m"] = haversine_vec(lat, lon, temp_df[lat_col].values, temp_df[lon_col].values)
+    temp_df["dist_m"] = haversine_vec(lat, lon, temp_df[lat_col], temp_df[lon_col])
     nearby_df = temp_df[temp_df["dist_m"] <= radius_m].copy()
 
     if nearby_df.empty:
         return m, nearby_df
 
     nearby_df["Distance (ft)"] = (nearby_df["dist_m"] * 3.28084).round(0).astype("Int64")
-    nearby_df = nearby_df.sort_values("dist_m", ascending=True).reset_index(drop=True)
+    nearby_df = nearby_df.sort_values("dist_m").reset_index(drop=True)
     nearby_df["Distance Rank"] = nearby_df.index + 1
 
-    # Risk-colored lines + points
+    # Map markers and lines
     for _, r in nearby_df.iterrows():
         rc = COLOR.get(r.get(risk_col, ""), "gray")
         folium.PolyLine([(lat, lon), (r[lat_col], r[lon_col])],
@@ -265,7 +262,7 @@ def build_focused_map_and_nearby(selected_dict):
             fill=True,
             fill_color=rc,
             fill_opacity=0.95,
-            popup=(f"<b>{r.get(street_col,'')}</b><br>Risk: {r.get(risk_col,'')}")
+            popup=f"<b>{r.get(street_col,'')}</b><br>Risk: {r.get(risk_col,'')}"
         ).add_to(m)
 
     # Pulsating center marker
@@ -325,7 +322,7 @@ with tab1:
                 f"<script>showToast('⚠️ No nearby addresses found near {addr}')</script>",
                 height=0
             )
-    map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
+    st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
 # -------------------------
 # TABLE TAB
@@ -344,9 +341,10 @@ with tab2:
             if c and c in nearby_df.columns:
                 table_cols.append(c)
 
+        # Sorting
         sort_df = nearby_df.copy()
         sort_df["_d"] = pd.to_numeric(sort_df["Distance (ft)"], errors="coerce")
-        sort_df = sort_df.sort_values("_d", ascending=True)
+        sort_df = sort_df.sort_values("_d")
         nearby_df = sort_df
         display_df = nearby_df[table_cols].copy().fillna("")
 
@@ -363,9 +361,8 @@ with tab2:
         )
 
         # -------------------------
-        # Inserted PATCH: Row Highlight Logic
+        # Highlight rows (Selected row full-color, others light tint)
         # -------------------------
-
         selected_street_val = st.session_state.selected.get(street_col, "").strip()
 
         def lighten(color_hex, factor=0.82):
@@ -384,9 +381,8 @@ with tab2:
             base_color = COLOR.get(risk_val, "#CCCCCC")
 
             if street_val == selected_street_val:
-                full_color = base_color
                 txt_color = "white" if risk_val in ["Very High", "High"] else "black"
-                return [f'background-color:{full_color};color:{txt_color};font-weight:bold;'] * len(row)
+                return [f'background-color:{base_color};color:{txt_color};font-weight:bold;'] * len(row)
 
             light_color = lighten(base_color)
             return [f'background-color:{light_color};color:black;'] * len(row)
