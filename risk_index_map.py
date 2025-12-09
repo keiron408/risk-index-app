@@ -11,7 +11,7 @@ st.set_page_config(page_title="Termite Risk Index Viewer", layout="wide")
 st.title("🏠 Termite Risk Index Viewer")
 
 # -------------------------
-# Global Style + Toast + Legend
+# Global Style + Toast + Legend CSS
 # -------------------------
 st.markdown("""
 <style>
@@ -121,7 +121,7 @@ if not lat_col or not lon_col or not risk_col:
     st.stop()
 
 # -------------------------
-# Normalize risk values (FULL FIX)
+# Normalize risk values
 # -------------------------
 df[risk_col] = (
     df[risk_col]
@@ -146,9 +146,9 @@ df[risk_col] = df[risk_col].replace({
 # -------------------------
 COLOR = {
     "Very High": "#8B0000",
-    "High": "#FF0000",
+    "High":     "#FF0000",
     "Moderate": "#FFA500",
-    "Low": "#FFFF00"
+    "Low":      "#FFFF00"
 }
 
 # -------------------------
@@ -209,7 +209,7 @@ def haversine_vec(lat0, lon0, lats, lons):
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # -------------------------
-# Search selection
+# Handle search selection
 # -------------------------
 if search_choice:
     sel_row = df[df[addr_col] == search_choice]
@@ -254,6 +254,7 @@ def build_focused_map_and_nearby(selected):
     nearby_df = temp_df[temp_df["dist_m"] <= radius_m].copy()
 
     if nearby_df.empty:
+        # Pulsating center marker only
         folium.Marker(
             location=[lat, lon],
             icon=folium.DivIcon(
@@ -264,8 +265,8 @@ def build_focused_map_and_nearby(selected):
                             animation:pulse 1s infinite;"></div>
                 <style>
                 @keyframes pulse {{
-                    0% {{transform:scale(0.8);opacity:0.7;}}
-                    50% {{transform:scale(1.4);opacity:0.4;}}
+                    0%   {{transform:scale(0.8);opacity:0.7;}}
+                    50%  {{transform:scale(1.4);opacity:0.4;}}
                     100% {{transform:scale(0.8);opacity:0.7;}}
                 }}
                 </style>
@@ -294,7 +295,8 @@ def build_focused_map_and_nearby(selected):
             weight=1,
             fill=True,
             fill_color=rc,
-            fill_opacity=0.95
+            fill_opacity=0.95,
+            popup=f"<b>{r.get(street_col, '')}</b><br>Risk: {r.get(risk_col, '')}"
         ).add_to(m)
 
     # Pulsating center marker
@@ -308,8 +310,8 @@ def build_focused_map_and_nearby(selected):
                         animation:pulse 1s infinite;"></div>
             <style>
             @keyframes pulse {{
-                0% {{transform:scale(0.8);opacity:0.7;}}
-                50% {{transform:scale(1.4);opacity:0.4;}}
+                0%   {{transform:scale(0.8);opacity:0.7;}}
+                50%  {{transform:scale(1.4);opacity:0.4;}}
                 100% {{transform:scale(0.8);opacity:0.7;}}
             }}
             </style>
@@ -329,63 +331,64 @@ def get_map_dimensions():
             return 360, 420
         elif "Tablet" in ua:
             return 720, 520
-    except:
+    except Exception:
         pass
     return 1000, 600
 
 map_width, map_height = get_map_dimensions()
 
 # ============================================================
-# 🚨 NEW LAYOUT LOGIC HERE
+# INITIAL LAYOUT: FULL-WIDTH MAP BEFORE SELECTION
 # ============================================================
-
-# CASE 1 — BEFORE SELECTION: SHOW FULL-WIDTH MAP
 if st.session_state.selected is None:
-
     m = build_base_map()
     map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
-    # Allow clicking to select nearest address
+    # Map click → select nearest address → rerun
     if map_data and map_data.get("last_clicked") is not None:
         click_lat = map_data["last_clicked"]["lat"]
         click_lon = map_data["last_clicked"]["lng"]
-
         distances = haversine_vec(click_lat, click_lon, df[lat_col], df[lon_col])
         nearest_idx = np.argmin(distances)
         st.session_state.selected = df.iloc[nearest_idx].to_dict()
+        st.rerun()
 
-        st.experimental_rerun()
+    # Legend under full-width map as well
+    st.markdown("""
+    <div class="legend-container">
+        <div class="legend-item"><div class="legend-box" style="background:#8B0000;"></div> Very High</div>
+        <div class="legend-item"><div class="legend-box" style="background:#FF0000;"></div> High</div>
+        <div class="legend-item"><div class="legend-box" style="background:#FFA500;"></div> Moderate</div>
+        <div class="legend-item"><div class="legend-box" style="background:#FFFF00;"></div> Low</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.stop()
 
-# -------------------------
-# CASE 2 — AFTER SELECTION → SPLIT LAYOUT
-# -------------------------
+# ============================================================
+# AFTER SELECTION: SPLIT LAYOUT (MAP + TABLE)
+# ============================================================
 map_col, table_col = st.columns([1.3, 1])
 
 # -------------------------
 # LEFT COLUMN — MAP
 # -------------------------
 with map_col:
-
     m, nearby = build_focused_map_and_nearby(st.session_state.selected)
     st.session_state.nearby_df = nearby
 
     map_data = st_folium(m, width=map_width, height=map_height, use_container_width=True)
 
-    # Always select nearest address on click
+    # Map click → always select nearest address (Option A)
     if map_data and map_data.get("last_clicked") is not None:
-
         click_lat = map_data["last_clicked"]["lat"]
         click_lon = map_data["last_clicked"]["lng"]
-
         distances = haversine_vec(click_lat, click_lon, df[lat_col], df[lon_col])
         nearest_idx = np.argmin(distances)
-
         st.session_state.selected = df.iloc[nearest_idx].to_dict()
-        st.experimental_rerun()
+        st.rerun()
 
-    # RISK LEGEND BELOW MAP
+    # Risk Legend under map
     st.markdown("""
     <div class="legend-container">
         <div class="legend-item"><div class="legend-box" style="background:#8B0000;"></div> Very High</div>
@@ -399,13 +402,13 @@ with map_col:
 # RIGHT COLUMN — TABLE
 # -------------------------
 with table_col:
-
     nearby_df = st.session_state.nearby_df
 
     if nearby_df.empty:
-        st.warning("No nearby addresses found.")
+        st.warning("No nearby addresses found within the selected radius.")
         st.stop()
 
+    # Build table columns
     table_cols = [street_col, risk_col, "Distance (ft)"]
     if risk_score_col in nearby_df.columns:
         table_cols.insert(2, risk_score_col)
@@ -416,21 +419,20 @@ with table_col:
 
     sort_df = nearby_df.copy()
     sort_df["_dist"] = pd.to_numeric(sort_df["Distance (ft)"], errors="coerce")
-    sort_df = sort_df.sort_values("_dist")
-
+    sort_df = sort_df.sort_values("_dist", ascending=True)
     display_df = sort_df[table_cols].copy().fillna("")
 
     sel_street = st.session_state.selected.get(street_col, "")
     sel_risk = st.session_state.selected.get(risk_col, "")
     risk_color = COLOR.get(sel_risk, "gray")
-    text_color = "white" if sel_risk in ["High", "Very High"] else "black"
+    header_text_color = "white" if sel_risk in ["High", "Very High"] else "black"
 
-    # Header Banner
+    # Banner
     st.markdown(
         f"""
-        <div style="background:{risk_color};color:{text_color};
-                    padding:8px;border-radius:6px;
-                    text-align:center;font-size:16px;">
+        <div style="background:{risk_color};color:{header_text_color};
+                    padding:8px;border-radius:6px;text-align:center;
+                    font-size:16px;">
             {len(display_df)} addresses within {radius_toggle} ft of {sel_street}
             (Risk: {sel_risk})
         </div>
@@ -440,7 +442,7 @@ with table_col:
 
     # Most recent inspection
     if recent_insp_col in sort_df.columns:
-        recent_vals = pd.to_datetime(sort_df[recent_insp_col], errors='coerce').dropna()
+        recent_vals = pd.to_datetime(sort_df[recent_insp_col], errors="coerce").dropna()
         max_date = recent_vals.max().strftime("%m/%d/%Y") if not recent_vals.empty else "N/A"
     else:
         max_date = "N/A"
@@ -448,16 +450,15 @@ with table_col:
     st.markdown(
         f"""
         <div style="background:#f3f3f3;color:black;padding:6px;
-                    border-radius:6px;text-align:center;
-                    margin-bottom:8px;">
-            Most recent inspection: {max_date}
+                    border-radius:6px;text-align:center;margin-bottom:8px;">
+            Most recent inspection within {radius_toggle} ft: {max_date}
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # Row Highlighting
-    selected_street_val = sel_street.strip()
+    # Row highlighting
+    selected_street_val = str(sel_street).strip()
 
     def lighten(hex_color, factor=0.82):
         hex_color = hex_color.lstrip("#")
@@ -467,26 +468,28 @@ with table_col:
         b = int(b + (255 - b) * factor)
         return f"rgb({r},{g},{b})"
 
-    def highlight(row):
+    def highlight_rows(row):
         street = str(row.get(street_col, "")).strip()
         level = row.get(risk_col, "")
-        base = COLOR.get(level, "#CCC")
+        base = COLOR.get(level, "#CCCCCC")
 
         if street == selected_street_val:
             txt = "white" if level in ["High", "Very High"] else "black"
-            return [f"background:{base};color:{txt};font-weight:bold;"] * len(row)
+            return [f"background-color:{base};color:{txt};font-weight:bold;"] * len(row)
 
-        return [f"background:{lighten(base)};color:black;"] * len(row)
+        return [f"background-color:{lighten(base)};color:black;"] * len(row)
 
     styled_df = (
         display_df.style
-        .apply(highlight, axis=1)
+        .apply(highlight_rows, axis=1)
         .set_table_styles(
             [{
                 "selector": "thead th",
-                "props": [("background-color", risk_color),
-                          ("color", text_color),
-                          ("font-weight", "bold")]
+                "props": [
+                    ("background-color", risk_color),
+                    ("color", header_text_color),
+                    ("font-weight", "bold")
+                ]
             }]
         )
     )
