@@ -71,7 +71,7 @@ def load_data():
 df = load_data()
 
 # ============================================================
-# AUTO-DETECT COLUMNS (THE VERSION THAT WORKED)
+# AUTO-DETECT COLUMNS
 # ============================================================
 def find_col(cols, candidates):
     lower = [c.lower() for c in cols]
@@ -98,7 +98,7 @@ if not street_col:
     street_col = addr_col
 
 # ============================================================
-# THIS WAS THE ORIGINAL RISK NORMALIZATION (BEFORE UPPERCASE)
+# RISK NORMALIZATION (UI FIX)
 # ============================================================
 df[risk_col] = (
     df[risk_col]
@@ -106,14 +106,14 @@ df[risk_col] = (
     .str.strip()
     .str.replace("_", " ", regex=False)
     .str.replace("-", " ", regex=False)
-    .str.title()
+    .str.upper()
 )
 
 df[risk_col] = df[risk_col].replace({
-    "High Risk": "High",
-    "Moderate Risk": "Moderate",
-    "Low Risk": "Low",
-    "Very High Risk": "Very High",
+    "VERY HIGH": "Very High",
+    "HIGH": "High",
+    "MODERATE": "Moderate",
+    "LOW": "Low",
 })
 
 COLOR = {
@@ -139,9 +139,10 @@ center_lon = df[lon_col].mean()
 st.session_state.setdefault("selected", None)
 st.session_state.setdefault("nearby_df", pd.DataFrame())
 st.session_state.setdefault("map_last_click", None)
+st.session_state.setdefault("pending_first_click", False)
 
 # ============================================================
-# DISTANCE
+# DISTANCE FUNCTION
 # ============================================================
 def haversine_vec(lat0, lon0, lats, lons):
     R = 6371000.0
@@ -149,13 +150,11 @@ def haversine_vec(lat0, lon0, lats, lons):
     lon0 = np.radians(lon0)
     lat = np.radians(lats)
     lon = np.radians(lons)
-    dlat = lat - lat0
-    dlon = lon - lon0
-    a = np.sin(dlat/2)**2 + np.cos(lat0)*np.cos(lat)*np.sin(dlon/2)**2
+    a = np.sin((lat - lat0)/2)**2 + np.cos(lat0)*np.cos(lat)*np.sin((lon - lon0)/2)**2
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # ============================================================
-# SEARCH UI (ORIGINAL)
+# SEARCH UI
 # ============================================================
 st.markdown("### 🔍 Search Options")
 
@@ -184,17 +183,15 @@ radius_m = radius_ft * 0.3048
 
 # Handle search selection
 if search_choice:
-    if search_col:
-        match = df[df[search_col] == search_choice]
-    else:
-        match = df[df[addr_col] == search_choice]
+    match = df[df[search_col] == search_choice] if search_col else df[df[addr_col] == search_choice]
 
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
         st.session_state.map_last_click = None
+        st.session_state.pending_first_click = True  # FIX flashing after search
 
 # ============================================================
-# MAP BUILDERS
+# MAP BUILDERS (unchanged)
 # ============================================================
 def build_base_map():
     m = folium.Map(
@@ -229,7 +226,6 @@ def build_focused_map_and_nearby(selected):
         weight=2,
     ).add_to(m)
 
-    # Compute nearby
     temp = df.copy()
     temp["dist_m"] = haversine_vec(lat, lon, temp[lat_col], temp[lon_col])
     near = temp[temp["dist_m"] <= radius_m].copy()
@@ -240,7 +236,6 @@ def build_focused_map_and_nearby(selected):
     near["Distance (ft)"] = (near["dist_m"] * 3.28084).round(0).astype("Int64")
     near = near.sort_values("dist_m").reset_index(drop=True)
 
-    # Nearby markers
     for _, r in near.iterrows():
         c = COLOR.get(r.get(risk_col, ""), "gray")
         folium.CircleMarker(
@@ -267,29 +262,40 @@ def build_focused_map_and_nearby(selected):
     return m, near
 
 # ============================================================
-# CLICK HANDLER (ORIGINAL)
+# CLICK HANDLER (with first-click-after-search fix)
 # ============================================================
 def handle_map_click(map_data):
-    if not isinstance(map_data, dict): return
+    if not isinstance(map_data, dict):
+        return
+
     click = map_data.get("last_clicked")
-    if not click: return
+    if not click:
+        return
 
     lat = click.get("lat")
     lon = click.get("lng")
-    if lat is None or lon is None: return
+    if lat is None or lon is None:
+        return
 
-    # avoid duplicate click
-    last = st.session_state.get("map_last_click")
+    # FIRST CLICK AFTER SEARCH → ignore (UI improvement)
+    if st.session_state.pending_first_click:
+        st.session_state.pending_first_click = False
+        st.session_state.map_last_click = {"lat": lat, "lon": lon}
+        return
+
+    # Duplicate click guard
+    last = st.session_state.map_last_click
     if isinstance(last, dict):
         if abs(last["lat"] - lat) < 1e-9 and abs(last["lon"] - lon) < 1e-9:
             return
 
     st.session_state.map_last_click = {"lat": lat, "lon": lon}
 
-    # Find nearest parcel
-    distances = haversine_vec(lat, lon, df[lat_col], df[lon_col])
-    nearest_idx = int(np.argmin(distances))
-    st.session_state.selected = df.iloc[nearest_idx].to_dict()
+    # Snap to nearest parcel
+    d = haversine_vec(lat, lon, df[lat_col], df[lon_col])
+    idx = int(np.argmin(d))
+    st.session_state.selected = df.iloc[idx].to_dict()
+
     st.rerun()
 
 # ============================================================
@@ -306,7 +312,7 @@ def legend():
     """, unsafe_allow_html=True)
 
 # ============================================================
-# INITIAL MAP (NO SELECTION)
+# NO SELECTION → INITIAL MAP
 # ============================================================
 if st.session_state.selected is None:
     m = build_base_map()
@@ -320,7 +326,7 @@ if st.session_state.selected is None:
     st.stop()
 
 # ============================================================
-# MAP + TABLE
+# MAP + TABLE LAYOUT
 # ============================================================
 map_col, table_col = st.columns([1.3, 1])
 
@@ -344,13 +350,52 @@ with table_col:
         st.stop()
 
     table_cols = [street_col, risk_col, "Distance (ft)"]
-    if risk_score_col in df2.columns:
-        table_cols.insert(2, risk_score_col)
-    if recent_insp_col in df2.columns:
-        table_cols.append(recent_insp_col)
-    if num_insp_col in df2.columns:
-        table_cols.append(num_insp_col)
+    if risk_score_col in df2.columns: table_cols.insert(2, risk_score_col)
+    if recent_insp_col in df2.columns: table_cols.append(recent_insp_col)
+    if num_insp_col in df2.columns: table_cols.append(num_insp_col)
 
     df2 = df2[table_cols].fillna("")
 
-    st.dataframe(df2, use_container_width=True, height=550)
+    # --- FORCE HEADER ROW TO APPEAR ---
+    df2 = df2.rename(columns={col: col for col in df2.columns})
+
+    # ============================================================
+    # ROW COLORING (selected + lightened for nearby rows)
+    # ============================================================
+    def lighten(hex_color, factor=0.82):
+        hex_color = hex_color.lstrip("#")
+        r, g, b = (int(hex_color[i:i+2], 16) for i in (0,2,4))
+        r = int(r + (255 - r)*factor)
+        g = int(g + (255 - g)*factor)
+        b = int(b + (255 - b)*factor)
+        return f"rgb({r},{g},{b})"
+
+    sel_addr = st.session_state.selected.get(street_col, "")
+
+    def highlight_rows(row):
+        addr = str(row.get(street_col, ""))
+        level = row.get(risk_col, "")
+        base = COLOR.get(level, "#DDD")
+
+        if addr == sel_addr:
+            txt = "white" if level in ["High","Very High"] else "black"
+            return [f"background-color:{base};color:{txt};font-weight:bold;"] * len(row)
+
+        return [f"background-color:{lighten(base)};color:black;"] * len(row)
+
+    styled = (
+        df2.style
+        .apply(highlight_rows, axis=1)
+        .set_table_styles([{
+            "selector": "thead th",
+            "props": [("background-color", "#444"), ("color", "white"), ("font-weight", "bold")]
+        }])
+    )
+
+    st.dataframe(
+        styled,
+        use_container_width=True,
+        hide_index=True,
+        height=550,
+        column_config={col: st.column_config.Column(col) for col in df2.columns}
+    )
