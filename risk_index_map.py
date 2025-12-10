@@ -70,14 +70,6 @@ def load_data():
 
 df = load_data()
 
-# Ensure "# of inspections" column is clean integer
-if num_insp_col in df.columns:
-    df[num_insp_col] = (
-        pd.to_numeric(df[num_insp_col], errors="coerce")
-        .fillna(0)
-        .astype(int)
-    )
-
 # ============================================================
 # AUTO-DETECT COLUMNS
 # ============================================================
@@ -100,15 +92,15 @@ risk_col = find_col(df.columns, ["risk_level", "risk"])
 risk_score_col = find_col(df.columns, ["risk_score"])
 recent_insp_col = find_col(df.columns, ["most recent inspection"])
 num_insp_col = find_col(df.columns, ["# of inspections"])
-
-# We explicitly know we want "search address" for search
 search_addr_col = "search address"
 
 if not street_col:
     street_col = addr_col
 
-# Convert "# of inspections" to clean integer values
-if num_insp_col in df.columns:
+# ============================================================
+# FIX "# OF INSPECTIONS" TO INTEGER
+# ============================================================
+if num_insp_col and num_insp_col in df.columns:
     df[num_insp_col] = (
         pd.to_numeric(df[num_insp_col], errors="coerce")
         .fillna(0)
@@ -160,7 +152,6 @@ st.session_state.setdefault("map_last_click", None)
 st.session_state.setdefault("last_search_value", "")
 st.session_state.setdefault("clear_search", False)
 
-# Sanity check: if selected is not a dict with lat/lon, reset it
 sel = st.session_state.get("selected", None)
 if (
     not isinstance(sel, dict)
@@ -171,7 +162,7 @@ if (
     st.session_state.selected = None
 
 # ============================================================
-# DISTANCE FUNCTION
+# DISTANCE
 # ============================================================
 def haversine_vec(lat0, lon0, lats, lons):
     R = 6371000.0
@@ -183,7 +174,7 @@ def haversine_vec(lat0, lon0, lats, lons):
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # ============================================================
-# SEARCH UI (non-selectable placeholder, auto-reset)
+# SEARCH UI
 # ============================================================
 st.markdown("### 🔍 Search Options")
 
@@ -193,8 +184,7 @@ def get_search_options(df):
 
 colA, colB = st.columns([2, 1])
 
-# Clear search dropdown BEFORE widget rendering if a map click requested it
-if st.session_state.get("clear_search", False):
+if st.session_state.clear_search:
     st.session_state.search_box = ""
     st.session_state.last_search_value = ""
     st.session_state.clear_search = False
@@ -203,12 +193,12 @@ with colA:
     opts = get_search_options(df)
     placeholder = "Enter address / select from map..."
 
-    def fmt(v: str) -> str:
+    def fmt(v):
         return placeholder if v == "" else v
 
     search_choice = st.selectbox(
         "Search",
-        [""] + opts,            # "" is logical placeholder value
+        [""] + opts,
         key="search_box",
         format_func=fmt,
         label_visibility="collapsed",
@@ -219,7 +209,6 @@ with colB:
 
 radius_m = radius_ft * 0.3048
 
-# Only update selected from SEARCH if user actually changed the dropdown
 user_changed_search = (search_choice != st.session_state.last_search_value)
 st.session_state.last_search_value = search_choice
 
@@ -227,7 +216,7 @@ if user_changed_search and search_choice != "":
     match = df[df[search_addr_col] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None  # reset map click
+        st.session_state.map_last_click = None
 
 # ============================================================
 # MAP BUILDERS
@@ -256,17 +245,14 @@ def build_focused_map_and_nearby(selected):
     )
     m.add_child(folium.LatLngPopup())
 
-    # Radius ring
-    ring_radius = radius_m * 1.20
     folium.Circle(
         (lat, lon),
-        ring_radius,
+        radius_m * 1.20,
         color="blue",
         fill=False,
         weight=2,
     ).add_to(m)
 
-    # Compute nearby parcels
     temp = df.copy()
     temp["dist_m"] = haversine_vec(lat, lon, temp[lat_col], temp[lon_col])
     near = temp[temp["dist_m"] <= radius_m].copy()
@@ -274,35 +260,34 @@ def build_focused_map_and_nearby(selected):
     if near.empty:
         return m, near
 
-    # Distance in feet
     near["Distance (ft)"] = (near["dist_m"] * 3.28084).round(0).astype("Int64")
     near = near.sort_values("dist_m").reset_index(drop=True)
 
-    # Numbering for neighbors (exclude selected address)
-    numbers = {}
-    n = 1
+    # numbering
     selected_address = selected.get(street_col, "")
+    numbers = {}
+    counter = 1
 
     for _, r in near.iterrows():
         addr = r.get(street_col, "")
         if addr == selected_address:
-            numbers[addr] = ""   # no number for primary point
+            numbers[addr] = ""
         else:
-            numbers[addr] = str(n)
-            n += 1
+            numbers[addr] = str(counter)
+            counter += 1
 
-    # Radial dashed lines inward
+    # dashed lines
     for _, r in near.iterrows():
-        rc = COLOR.get(r.get(risk_col, ""), "gray")
+        col = COLOR.get(r.get(risk_col, ""), "gray")
         folium.PolyLine(
             [(lat, lon), (r[lat_col], r[lon_col])],
-            color=rc,
+            color=col,
             weight=1.5,
             opacity=0.5,
-            dash_array="5, 5"
+            dash_array="5, 5",
         ).add_to(m)
 
-    # Numbered markers for nearby points
+    # numbered markers
     for _, r in near.iterrows():
         addr = r.get(street_col, "")
         marker_num = numbers.get(addr, "")
@@ -329,7 +314,7 @@ def build_focused_map_and_nearby(selected):
             ),
         ).add_to(m)
 
-    # Center marker (searched/clicked address) - no number, just big colored dot
+    # center marker
     folium.CircleMarker(
         (lat, lon),
         radius=10,
@@ -358,21 +343,17 @@ def handle_map_click(map_data):
     if lat is None or lon is None:
         return
 
-    # Prevent ghost-click duplicates
     last = st.session_state.get("map_last_click")
     if last and abs(last["lat"] - lat) < 1e-9 and abs(last["lon"] - lon) < 1e-9:
         return
 
     st.session_state.map_last_click = {"lat": lat, "lon": lon}
 
-    # Snap to nearest parcel
     d = haversine_vec(lat, lon, df[lat_col], df[lon_col])
     nearest_idx = int(np.argmin(d))
     st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
-    # On map click, tell search UI to clear on next render
     st.session_state.clear_search = True
-
     st.rerun()
 
 # ============================================================
@@ -402,12 +383,11 @@ if st.session_state.selected is None:
     )
     legend()
 
-    # CLICK HANDLING FOR INITIAL MAP
     if map_data and map_data.get("last_clicked"):
         handle_map_click(map_data)
 
 # ============================================================
-# MAP + TABLE LAYOUT (SIDE BY SIDE)
+# MAP + TABLE LAYOUT
 # ============================================================
 else:
     map_col, table_col = st.columns([1.3, 1])
@@ -423,12 +403,12 @@ else:
             key="mainmap"
         )
 
-        # CLICK HANDLING FOR FOCUSED MAP
         if map_data and map_data.get("last_clicked"):
             handle_map_click(map_data)
 
         legend()
 
+    # ================= TABLE ====================
     with table_col:
         df2 = st.session_state.nearby_df.copy()
 
@@ -436,26 +416,21 @@ else:
             st.warning("No nearby addresses within the selected radius.")
             st.session_state.nearby_df = pd.DataFrame()
         else:
-            # -------------------------------------------------------
-            # Numbering column (No.) — matches map markers
-            # -------------------------------------------------------
+            # numbering column
             if "No." in df2.columns:
                 df2 = df2.drop(columns=["No."])
             df2.insert(0, "No.", "")
 
             selected_address = st.session_state.selected.get(street_col, "")
-
-            num = 1
+            counter = 1
             for i in df2.index:
                 if df2.at[i, street_col] == selected_address:
-                    df2.at[i, "No."] = ""   # no number for selected address
+                    df2.at[i, "No."] = ""
                 else:
-                    df2.at[i, "No."] = num
-                    num += 1
+                    df2.at[i, "No."] = counter
+                    counter += 1
 
-            # -------------------------------------------------------
-            # Build visible table columns (keep "No." FIRST)
-            # -------------------------------------------------------
+            # columns for table
             table_cols = ["No.", street_col, risk_col, "Distance (ft)"]
 
             if risk_score_col in df2.columns:
@@ -469,11 +444,13 @@ else:
 
             df2 = df2[table_cols].fillna("")
 
-            # SUMMARY BANNER (no duplicate "Risk level: ..." line)
+            # summary banner (neighbor count excludes selected itself)
             sel_addr = st.session_state.selected.get(street_col, "")
             sel_risk = st.session_state.selected.get(risk_col, "")
             banner_color = COLOR.get(sel_risk, "#444")
             text_color = "white" if sel_risk in ["High", "Very High"] else "black"
+
+            neighbor_count = max(len(df2) - 1, 0)
 
             st.markdown(
                 f"""
@@ -485,13 +462,13 @@ else:
                             font-size:15px;
                             font-weight:bold;
                             text-align:center;">
-                    {max(len(df2) - 1, 0)} nearby addresses within {radius_ft} ft of {sel_addr}
+                    {neighbor_count} nearby addresses within {radius_ft} ft of {sel_addr}
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            # OPTIONAL: Most recent inspection bar
+            # optional “most recent inspection” summary
             if recent_insp_col in df2.columns:
                 recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
                 recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
@@ -511,7 +488,7 @@ else:
                     unsafe_allow_html=True
                 )
 
-            # ROW COLORING
+            # row coloring
             def lighten(hex_color, factor=0.82):
                 hex_color = hex_color.lstrip("#")
                 r, g, b = (int(hex_color[i:i+2], 16) for i in (0, 2, 4))
