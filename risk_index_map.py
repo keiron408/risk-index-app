@@ -444,6 +444,10 @@ else:
 
             df2 = df2[table_cols].fillna("")
 
+            # Display blank instead of zero for "# of inspections"
+            if num_insp_col in df2.columns:
+                df2[num_insp_col] = df2[num_insp_col].replace({0: ""})
+
             # summary banner (neighbor count excludes selected itself)
             sel_addr = st.session_state.selected.get(street_col, "")
             sel_risk = st.session_state.selected.get(risk_col, "")
