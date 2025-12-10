@@ -98,20 +98,6 @@ if not street_col:
     street_col = addr_col
 
 # ============================================================
-# SESSION-STATE SANITY CHECK (PREVENTS TYPEERROR + DEAD CLICKS)
-# ============================================================
-sel = st.session_state.get("selected", None)
-
-# If selected is not a dict OR missing lat/lon fields -> reset it
-if (
-    not isinstance(sel, dict)
-    or sel is None
-    or lat_col not in sel
-    or lon_col not in sel
-):
-    st.session_state.selected = None
-
-# ============================================================
 # RISK NORMALIZATION
 # ============================================================
 df[risk_col] = (
@@ -153,6 +139,17 @@ center_lon = df[lon_col].mean()
 st.session_state.setdefault("selected", None)
 st.session_state.setdefault("nearby_df", pd.DataFrame())
 st.session_state.setdefault("map_last_click", None)
+st.session_state.setdefault("last_search_value", "")
+
+# Sanity check: if selected is not a dict with lat/lon, reset it
+sel = st.session_state.get("selected", None)
+if (
+    not isinstance(sel, dict)
+    or sel is None
+    or lat_col not in sel
+    or lon_col not in sel
+):
+    st.session_state.selected = None
 
 # ============================================================
 # DISTANCE FUNCTION
@@ -194,12 +191,15 @@ with colB:
 
 radius_m = radius_ft * 0.3048
 
-# If user selects from dropdown, update immediately
-if search_choice:
+# Only update selected from SEARCH if user actually changed the dropdown
+user_changed_search = (search_choice != st.session_state.last_search_value)
+st.session_state.last_search_value = search_choice
+
+if user_changed_search and search_choice:
     match = df[df["search address"] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None  # reset click tracking
+        st.session_state.map_last_click = None  # reset map click
 
 # ============================================================
 # MAP BUILDERS
@@ -314,6 +314,9 @@ def handle_map_click(map_data):
     nearest_idx = int(np.argmin(d))
     st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
+    # When user clicks map, clear search intent
+    st.session_state.last_search_value = ""
+
     st.rerun()
 
 # ============================================================
@@ -347,7 +350,6 @@ if st.session_state.selected is None:
     if map_data and map_data.get("last_clicked"):
         handle_map_click(map_data)
 
-
 # ============================================================
 # MAP + TABLE LAYOUT (SIDE BY SIDE)
 # ============================================================
@@ -371,7 +373,6 @@ else:
 
         legend()
 
-    # ✅ THIS MUST BE INSIDE THE ELSE BLOCK
     with table_col:
 
         df2 = st.session_state.nearby_df
@@ -379,99 +380,99 @@ else:
         if df2.empty:
             st.warning("No nearby addresses within the selected radius.")
             st.session_state.nearby_df = pd.DataFrame()
+        else:
+            # Selected columns (FullAddress for display, risk, distance, etc.)
+            table_cols = [street_col, risk_col, "Distance (ft)"]
+            if risk_score_col in df2.columns:
+                table_cols.insert(2, risk_score_col)
+            if recent_insp_col in df2.columns:
+                table_cols.append(recent_insp_col)
+            if num_insp_col in df2.columns:
+                table_cols.append(num_insp_col)
 
-        # Selected columns (FullAddress for display, risk, distance, etc.)
-        table_cols = [street_col, risk_col, "Distance (ft)"]
-        if risk_score_col in df2.columns:
-            table_cols.insert(2, risk_score_col)
-        if recent_insp_col in df2.columns:
-            table_cols.append(recent_insp_col)
-        if num_insp_col in df2.columns:
-            table_cols.append(num_insp_col)
+            df2 = df2[table_cols].fillna("")
 
-        df2 = df2[table_cols].fillna("")
+            # SUMMARY BANNER
+            sel_addr = st.session_state.selected.get(street_col, "")
+            sel_risk = st.session_state.selected.get(risk_col, "")
+            banner_color = COLOR.get(sel_risk, "#444")
+            text_color = "white" if sel_risk in ["High", "Very High"] else "black"
 
-        # SUMMARY BANNER
-        sel_addr = st.session_state.selected.get(street_col, "")
-        sel_risk = st.session_state.selected.get(risk_col, "")
-        banner_color = COLOR.get(sel_risk, "#444")
-        text_color = "white" if sel_risk in ["High", "Very High"] else "black"
+            st.markdown(
+                f"""
+                <div style="padding:10px 14px;
+                            margin-bottom:8px;
+                            border-radius:6px;
+                            background:{banner_color};
+                            color:{text_color};
+                            font-size:15px;
+                            font-weight:bold;
+                            text-align:center;">
+                    {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
+                    (Risk level: {sel_risk})
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
-        st.markdown(
-            f"""
-            <div style="padding:10px 14px;
-                        margin-bottom:8px;
-                        border-radius:6px;
-                        background:{banner_color};
-                        color:{text_color};
-                        font-size:15px;
-                        font-weight:bold;
-                        text-align:center;">
-                {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
-                (Risk level: {sel_risk})
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+            # RECENT INSPECTION BAR
+            if recent_insp_col in df2.columns:
+                recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
+                recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
 
-    # RECENT INSPECTION BAR
-    if recent_insp_col in df2.columns:
-        recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
-        recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
+                st.markdown(
+                    f"""
+                    <div style="padding:8px;
+                                margin-bottom:6px;
+                                border-radius:6px;
+                                background:#eee;
+                                color:#333;
+                                text-align:center;
+                                font-size:13px;">
+                        Most recent inspection among nearby addresses: {recent_text}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-        st.markdown(
-            f"""
-            <div style="padding:8px;
-                        margin-bottom:6px;
-                        border-radius:6px;
-                        background:#eee;
-                        color:#333;
-                        text-align:center;
-                        font-size:13px;">
-                Most recent inspection among nearby addresses: {recent_text}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+            # FORCE HEADER ROW
+            df2 = df2.rename(columns={col: col for col in df2.columns})
 
-    # FORCE HEADER ROW
-    df2 = df2.rename(columns={col: col for col in df2.columns})
+            # ROW COLORING
+            def lighten(hex_color, factor=0.82):
+                hex_color = hex_color.lstrip("#")
+                r, g, b = (int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                r = int(r + (255 - r)*factor)
+                g = int(g + (255 - g)*factor)
+                b = int(b + (255 - b)*factor)
+                return f"rgb({r},{g},{b})"
 
-    # ROW COLORING
-    def lighten(hex_color, factor=0.82):
-        hex_color = hex_color.lstrip("#")
-        r, g, b = (int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        r = int(r + (255 - r)*factor)
-        g = int(g + (255 - g)*factor)
-        b = int(b + (255 - b)*factor)
-        return f"rgb({r},{g},{b})"
+            selected_address = st.session_state.selected.get(street_col, "")
 
-    selected_address = st.session_state.selected.get(street_col, "")
+            def highlight_rows(row):
+                addr = str(row.get(street_col, ""))
+                level = row.get(risk_col, "")
+                base = COLOR.get(level, "#DDD")
 
-    def highlight_rows(row):
-        addr = str(row.get(street_col, ""))
-        level = row.get(risk_col, "")
-        base = COLOR.get(level, "#DDD")
+                if addr == selected_address:
+                    txt = "white" if level in ["High", "Very High"] else "black"
+                    return [f"background-color:{base};color:{txt};font-weight:bold;"] * len(row)
 
-        if addr == selected_address:
-            txt = "white" if level in ["High", "Very High"] else "black"
-            return [f"background-color:{base};color:{txt};font-weight:bold;"] * len(row)
+                return [f"background-color:{lighten(base)};color:black;"] * len(row)
 
-        return [f"background-color:{lighten(base)};color:black;"] * len(row)
+            styled = (
+                df2.style
+                .apply(highlight_rows, axis=1)
+                .set_table_styles([{
+                    "selector": "thead th",
+                    "props": [("background-color", "#333"), ("color", "white"), ("font-weight", "bold")]
+                }])
+            )
 
-    styled = (
-        df2.style
-        .apply(highlight_rows, axis=1)
-        .set_table_styles([{
-            "selector": "thead th",
-            "props": [("background-color", "#333"), ("color", "white"), ("font-weight", "bold")]
-        }])
-    )
-
-    st.dataframe(
-        styled,
-        use_container_width=True,
-        hide_index=True,
-        height=550,
-        column_config={col: st.column_config.Column(col) for col in df2.columns}
-    )
+            st.dataframe(
+                styled,
+                use_container_width=True,
+                hide_index=True,
+                height=550,
+                column_config={col: st.column_config.Column(col) for col in df2.columns}
+            )
