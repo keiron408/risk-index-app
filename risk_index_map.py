@@ -577,17 +577,13 @@ else:
                 height=550,
             )
 # ============================================================
-# PDF PREVIEW DOWNLOAD (Streamlit Cloud SAFE VERSION)
+# PDF PREVIEW DOWNLOAD (Final, Streamlit Cloud Safe, One-Button)
 # ============================================================
 
-# Retrieve current results table (may be empty)
 df2 = st.session_state.get("nearby_df", pd.DataFrame())
 
-# Only show PDF export if user has a selected parcel AND a non-empty results table
-if (
-    st.session_state.get("selected") is not None
-    and not df2.empty
-):
+# Only show PDF option if table exists AND a location is selected
+if st.session_state.get("selected") is not None and not df2.empty:
 
     from PIL import Image, ImageDraw, ImageFont
     import tempfile
@@ -596,20 +592,19 @@ if (
     st.markdown("### 📄 Download Quick Preview PDF")
 
     # --------------------------
-    # 1. CAPTURE MAP SNAPSHOT
+    # MAP SNAPSHOT (requires returned_objects=["last_screenshot"])
     # --------------------------
     def get_map_image():
         try:
-            map_data = st.session_state.get("mainmap", {})
-            if "last_screenshot" in map_data:
-                img_bytes = map_data["last_screenshot"]
-                return Image.open(io.BytesIO(img_bytes))
+            mdata = st.session_state.get("mainmap", {})
+            if "last_screenshot" in mdata:
+                return Image.open(io.BytesIO(mdata["last_screenshot"]))
         except:
             pass
         return None
 
     # --------------------------
-    # 2. LEGEND AS AN IMAGE
+    # LEGEND IMAGE
     # --------------------------
     def generate_legend_image():
         legend_items = [
@@ -618,10 +613,8 @@ if (
             ("Moderate", "#FFA500"),
             ("Low", "#FFFF00"),
         ]
-
         width = 550
         height = 70
-
         img = Image.new("RGB", (width, height), "white")
         draw = ImageDraw.Draw(img)
         font = ImageFont.load_default()
@@ -636,15 +629,9 @@ if (
         return img
 
     # --------------------------
-    # 3. TABLE → IMAGE
+    # TABLE IMAGE
     # --------------------------
-    def table_to_image(df):
-        if df.empty:
-            img = Image.new("RGB", (500, 60), "white")
-            draw = ImageDraw.Draw(img)
-            draw.text((20, 20), "No nearby addresses.", fill="black")
-            return img
-
+    def table_image(df):
         text = df.to_string(index=False)
         lines = text.split("\n")
         font = ImageFont.load_default()
@@ -662,78 +649,62 @@ if (
         return img
 
     # --------------------------
-    # 4. STACK IMAGES VERTICALLY
+    # STACK IMAGES VERTICALLY
     # --------------------------
     def stack_vertical(images):
-        widths = [img.width for img in images]
-        heights = [img.height for img in images]
+        widths = [i.width for i in images]
+        heights = [i.height for i in images]
+        total_h = sum(heights) + 40
+        max_w = max(widths)
 
-        total_height = sum(heights) + 40
-        max_width = max(widths)
-
-        canvas = Image.new("RGB", (max_width + 40, total_height), "white")
-
-        y_offset = 20
+        canvas = Image.new("RGB", (max_w + 40, total_h), "white")
+        y = 20
         for img in images:
-            canvas.paste(img, (20, y_offset))
-            y_offset += img.height + 20
+            canvas.paste(img, (20, y))
+            y += img.height + 20
 
         return canvas
 
     # --------------------------
-    # 5. BUILD THE PDF ON BUTTON CLICK
+    # BUILD + DOWNLOAD PDF (ONE BUTTON)
     # --------------------------
-    if st.button("📥 Generate PDF Preview"):
+    if st.button("⬇️ Download Preview PDF"):
 
-        # ---- Map Image ----
         map_img = get_map_image()
 
-        # ---- Legend Image ----
-        legend_img = generate_legend_image()
-
-        # ---- Prepare DataFrame for table image ----
+        # Prepare final table
         df_table = df2.copy()
 
-        # Build table column list dynamically
-        table_cols = ["No.", street_col, risk_col, "Distance (ft)"]
-
+        cols = ["No.", street_col, risk_col, "Distance (ft)"]
         if risk_score_col in df_table.columns:
-            table_cols.append(risk_score_col)
+            cols.append(risk_score_col)
         if recent_insp_col in df_table.columns:
-            table_cols.append(recent_insp_col)
+            cols.append(recent_insp_col)
         if num_insp_col in df_table.columns:
-            table_cols.append(num_insp_col)
+            cols.append(num_insp_col)
 
-        # Safely filter available columns
-        safe_cols = [c for c in table_cols if c in df_table.columns]
-
-        df_table = df_table[safe_cols].fillna("")
-
-        # Replace 0 with blank for "# of inspections"
+        df_table = df_table[[c for c in cols if c in df_table.columns]].fillna("")
         if num_insp_col in df_table.columns:
             df_table[num_insp_col] = df_table[num_insp_col].replace({0: ""})
 
-        table_img = table_to_image(df_table)
+        table_img = table_image(df_table)
+        legend_img = generate_legend_image()
 
-        # Collect images in final order
         images = []
         if map_img:
             images.append(map_img)
         images.append(legend_img)
         images.append(table_img)
 
-        # Stack vertically
-        final_png = stack_vertical(images)
+        final_img = stack_vertical(images)
 
-        # ---- Save as PDF ----
         tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        final_png.save(tmp_pdf.name, "PDF", resolution=100.0)
+        final_img.save(tmp_pdf.name, "PDF", resolution=120.0)
 
-        # ---- Provide download ----
         with open(tmp_pdf.name, "rb") as f:
             st.download_button(
-                "⬇️ Download Preview PDF",
+                "Click here if download doesn't auto-start",
                 f,
                 file_name="Termite_Risk_Preview.pdf",
-                mime="application/pdf",
+                mime="application/pdf"
             )
