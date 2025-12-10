@@ -49,7 +49,7 @@ st.markdown("""
 /* =============== MOBILE MAP HEIGHT FIX =============== */
 @media (max-width: 600px) {
     iframe[title="streamlit_folium.st_folium"] {
-        height: 350px !important;   /* shorter map for mobile */
+        height: 500px !important;   /* shorter map for mobile */
     }
 }
 
