@@ -281,16 +281,43 @@ def build_focused_map_and_nearby(selected):
         ).add_to(m)
 
     # Nearby markers
+    # Determine numbering for map markers (exclude selected address)
+    numbers = {}
+    n = 1
     for _, r in near.iterrows():
-        c = COLOR.get(r.get(risk_col, ""), "gray")
-        folium.CircleMarker(
-            (r[lat_col], r[lon_col]),
-            radius=6,
-            color="white",
-            fill=True,
-            fill_color=c,
-            fill_opacity=0.95,
-            weight=1,
+        addr = r[street_col]
+        if addr == selected.get(street_col, ""):
+            numbers[addr] = ""   # no number for primary point
+        else:
+            numbers[addr] = str(n)
+            n += 1
+
+    # Add numbered markers on map
+    for _, r in near.iterrows():
+        addr = r[street_col]
+        marker_num = numbers[addr]     # "" for selected address, otherwise "1", "2", "3"...
+        col = COLOR.get(r.get(risk_col, ""), "gray")
+
+        # Use DivIcon to place a number inside a circle
+        folium.map.Marker(
+            location=(r[lat_col], r[lon_col]),
+            icon=folium.DivIcon(
+                html=f"""
+                <div style="
+                    background:{col};
+                    width:22px;height:22px;
+                    border-radius:50%;
+                    border:2px solid black;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    font-size:12px;
+                    font-weight:bold;
+                    color:black;">
+                    {marker_num}
+                </div>
+                """
+            )
         ).add_to(m)
 
     # Center marker
