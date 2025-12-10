@@ -576,3 +576,101 @@ else:
                 hide_index=True,
                 height=550,
             )
+# ============================================================
+# QUICK PREVIEW PDF DOWNLOAD
+# ============================================================
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+import tempfile
+import os
+from PIL import Image
+
+st.markdown("### 📄 Download Preview PDF")
+
+def save_pdf(map_png, table_png):
+    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    c = canvas.Canvas(tmp_pdf.name, pagesize=letter)
+
+    width, height = letter
+    y = height - 40  # top margin
+
+    # --- Map ---
+    if map_png and os.path.exists(map_png):
+        c.drawString(40, y, "Map Preview:")
+        y -= 20
+        img = Image.open(map_png)
+        img.thumbnail((width-80, 350), Image.LANCZOS)
+        c.drawImage(ImageReader(img), 40, y-350)
+        y -= 370
+
+    # --- Legend ---
+    c.drawString(40, y, "Risk Legend:")
+    y -= 20
+    legend_items = [
+        ("Very High", "#8B0000"),
+        ("High", "#FF0000"),
+        ("Moderate", "#FFA500"),
+        ("Low", "#FFFF00"),
+    ]
+    x = 40
+    for label, color in legend_items:
+        c.setFillColor(color)
+        c.rect(x, y-10, 12, 12, fill=1)
+        c.setFillColor("black")
+        c.drawString(x + 18, y-8, label)
+        x += 120
+    y -= 40
+
+    # --- Table ---
+    if table_png and os.path.exists(table_png):
+        c.drawString(40, y, "Nearby Table Preview:")
+        y -= 20
+        img = Image.open(table_png)
+        img.thumbnail((width-80, 350), Image.LANCZOS)
+        c.drawImage(ImageReader(img), 40, y-350)
+        y -= 370
+
+    c.save()
+    return tmp_pdf.name
+
+
+# Generate map PNG
+def screenshot_map():
+    if "mainmap" not in st.session_state:
+        return None
+    try:
+        m_data = st.session_state["mainmap"]
+        if "last_screenshot" in m_data:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp.write(m_data["last_screenshot"])
+            tmp.close()
+            return tmp.name
+    except:
+        return None
+    return None
+
+# Generate table PNG via Streamlit's screenshot endpoint
+def screenshot_table():
+    try:
+        import pyautogui
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        shot = pyautogui.screenshot()
+        shot.save(tmp.name)
+        return tmp.name
+    except:
+        return None
+
+
+map_png = screenshot_map()
+table_png = screenshot_table()
+
+if st.button("📥 Download PDF Preview"):
+    pdf_path = save_pdf(map_png, table_png)
+    with open(pdf_path, "rb") as f:
+        st.download_button(
+            "Download Preview PDF",
+            f,
+            file_name="termite_report_preview.pdf",
+            mime="application/pdf",
+        )
