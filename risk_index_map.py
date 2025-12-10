@@ -11,29 +11,49 @@ st.set_page_config(page_title="Termite Risk Index Viewer", layout="wide")
 st.title("🏠 Termite Risk Index Viewer")
 
 # ============================================================
-# CSS (Legend + scroll button)
+# CSS (Legend, Scroll-to-top Button, Mobile Map Height)
 # ============================================================
 st.markdown("""
 <style>
+/* =============== TEXT + TABLE MOBILE OPTIMIZATION =============== */
 @media (max-width: 600px) {
     h1 {font-size: 1.3rem !important;}
     .stRadio label, .stSelectbox label {font-size: 0.9rem !important;}
     .stDataFrame {font-size: 0.8rem !important;}
 }
 
+/* =============== RISK LEGEND LAYOUT (Single Line Mobile) =============== */
 .legend-container {
     margin-top: 10px;
     display: flex;
     justify-content: center;
+    flex-wrap: wrap;      /* allows wrapping only if needed */
     gap: 14px;
 }
-.legend-item {display: flex;align-items: center;gap: 6px;font-size: 13px;}
-.legend-box {width: 18px;height: 18px;border-radius: 3px;border: 1px solid #555;}
 
-@media (max-width: 768px) {
-    .legend-container {flex-direction: column;align-items: flex-start;margin-left: 6px;}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    white-space: nowrap;  /* keeps each risk label on one line */
 }
 
+.legend-box {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    border: 1px solid #555;
+}
+
+/* =============== MOBILE MAP HEIGHT FIX =============== */
+@media (max-width: 600px) {
+    iframe[title="streamlit_folium.st_folium"] {
+        height: 350px !important;   /* shorter map for mobile */
+    }
+}
+
+/* =============== SCROLL-TO-TOP BUTTON =============== */
 #scrollTopBtn {
     display: none;
     position: fixed;
@@ -61,6 +81,7 @@ window.onscroll = function() {
 </script>
 """, unsafe_allow_html=True)
 
+
 # ============================================================
 # LOAD DATA
 # ============================================================
@@ -86,7 +107,7 @@ def find_col(cols, candidates):
 
 lat_col = find_col(df.columns, ["latitude", "lat"])
 lon_col = find_col(df.columns, ["longitude", "lon", "lng"])
-addr_col = find_col(df.columns, ["matched_address", "address", "full_address"])
+addr_col = find_col(df.columns, ["matched_address", "address", "fulladdress", "full_address"])
 street_col = find_col(df.columns, ["fulladdress", "street", "street_name"])
 risk_col = find_col(df.columns, ["risk_level", "risk"])
 risk_score_col = find_col(df.columns, ["risk_score"])
@@ -162,7 +183,7 @@ if (
     st.session_state.selected = None
 
 # ============================================================
-# DISTANCE
+# DISTANCE FUNCTION
 # ============================================================
 def haversine_vec(lat0, lon0, lats, lons):
     R = 6371000.0
@@ -218,6 +239,7 @@ if user_changed_search and search_choice != "":
         st.session_state.selected = match.iloc[0].to_dict()
         st.session_state.map_last_click = None
 
+
 # ============================================================
 # MAP BUILDERS
 # ============================================================
@@ -263,11 +285,10 @@ def build_focused_map_and_nearby(selected):
     near["Distance (ft)"] = (near["dist_m"] * 3.28084).round(0).astype("Int64")
     near = near.sort_values("dist_m").reset_index(drop=True)
 
-    # numbering
+    # numbering neighbors
     selected_address = selected.get(street_col, "")
     numbers = {}
     counter = 1
-
     for _, r in near.iterrows():
         addr = r.get(street_col, "")
         if addr == selected_address:
@@ -327,6 +348,7 @@ def build_focused_map_and_nearby(selected):
 
     return m, near
 
+
 # ============================================================
 # CLICK HANDLER
 # ============================================================
@@ -356,6 +378,7 @@ def handle_map_click(map_data):
     st.session_state.clear_search = True
     st.rerun()
 
+
 # ============================================================
 # LEGEND
 # ============================================================
@@ -368,6 +391,7 @@ def legend():
         <div class="legend-item"><div class="legend-box" style="background:#FFFF00;"></div> Low</div>
     </div>
     """, unsafe_allow_html=True)
+
 
 # ============================================================
 # INITIAL MAP (FULL WIDTH)
@@ -385,6 +409,7 @@ if st.session_state.selected is None:
 
     if map_data and map_data.get("last_clicked"):
         handle_map_click(map_data)
+
 
 # ============================================================
 # MAP + TABLE LAYOUT
@@ -408,7 +433,7 @@ else:
 
         legend()
 
-    # ================= TABLE ====================
+    # ====================== TABLE ==========================
     with table_col:
         df2 = st.session_state.nearby_df.copy()
 
@@ -430,7 +455,7 @@ else:
                     df2.at[i, "No."] = counter
                     counter += 1
 
-            # columns for table
+            # table columns
             table_cols = ["No.", street_col, risk_col, "Distance (ft)"]
 
             if risk_score_col in df2.columns:
@@ -444,11 +469,11 @@ else:
 
             df2 = df2[table_cols].fillna("")
 
-            # Display blank instead of zero for "# of inspections"
+            # blank instead of "0" for # of inspections
             if num_insp_col in df2.columns:
                 df2[num_insp_col] = df2[num_insp_col].replace({0: ""})
 
-            # summary banner (neighbor count excludes selected itself)
+            # summary banner
             sel_addr = st.session_state.selected.get(street_col, "")
             sel_risk = st.session_state.selected.get(risk_col, "")
             banner_color = COLOR.get(sel_risk, "#444")
@@ -472,7 +497,6 @@ else:
                 unsafe_allow_html=True
             )
 
-            # optional “most recent inspection” summary
             if recent_insp_col in df2.columns:
                 recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
                 recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
