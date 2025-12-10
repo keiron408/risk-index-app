@@ -71,7 +71,7 @@ def load_data():
 df = load_data()
 
 # ============================================================
-# AUTO-DETECT COLUMNS (KEEPS MAP WORKING)
+# AUTO-DETECT COLUMNS
 # ============================================================
 def find_col(cols, candidates):
     lower = [c.lower() for c in cols]
@@ -87,12 +87,14 @@ def find_col(cols, candidates):
 lat_col = find_col(df.columns, ["latitude", "lat"])
 lon_col = find_col(df.columns, ["longitude", "lon", "lng"])
 addr_col = find_col(df.columns, ["matched_address", "address", "full_address"])
-street_col = find_col(df.columns, ["street", "street_name", "fulladdress"])
+street_col = find_col(df.columns, ["fulladdress", "street", "street_name"])
 risk_col = find_col(df.columns, ["risk_level", "risk"])
 risk_score_col = find_col(df.columns, ["risk_score"])
 recent_insp_col = find_col(df.columns, ["most recent inspection"])
 num_insp_col = find_col(df.columns, ["# of inspections"])
-search_col = find_col(df.columns, ["search address", "search_address"])
+
+# We explicitly know we want "search address" for search
+search_addr_col = "search address"
 
 if not street_col:
     street_col = addr_col
@@ -140,6 +142,7 @@ st.session_state.setdefault("selected", None)
 st.session_state.setdefault("nearby_df", pd.DataFrame())
 st.session_state.setdefault("map_last_click", None)
 st.session_state.setdefault("last_search_value", "")
+st.session_state.setdefault("clear_search", False)
 
 # Sanity check: if selected is not a dict with lat/lon, reset it
 sel = st.session_state.get("selected", None)
@@ -164,43 +167,34 @@ def haversine_vec(lat0, lon0, lats, lons):
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # ============================================================
-# SEARCH UI (with non-selectable placeholder + auto-reset)
+# SEARCH UI (non-selectable placeholder, auto-reset)
 # ============================================================
 st.markdown("### 🔍 Search Options")
 
 @st.cache_data
 def get_search_options(df):
-    return sorted(df["search address"].dropna().unique())
-
+    return sorted(df[search_addr_col].dropna().unique())
 
 colA, colB = st.columns([2, 1])
 
-# -------------------------------------------
-# FIX: Clear dropdown BEFORE widget rendering
-# -------------------------------------------
+# Clear search dropdown BEFORE widget rendering if a map click requested it
 if st.session_state.get("clear_search", False):
-    st.session_state.search_box = ""     # internal value becomes empty string
+    st.session_state.search_box = ""
     st.session_state.last_search_value = ""
     st.session_state.clear_search = False
-
 
 with colA:
     opts = get_search_options(df)
     placeholder = "Enter address / select from map..."
 
-    # -------------------------------------------
-    # Non-selectable placeholder using format_func
-    # -------------------------------------------
-    def fmt(v):
-        if v == "":
-            return placeholder
-        return v
+    def fmt(v: str) -> str:
+        return placeholder if v == "" else v
 
     search_choice = st.selectbox(
         "Search",
-        [""] + opts,             # empty string = placeholder
+        [""] + opts,            # "" is logical placeholder value
         key="search_box",
-        format_func=fmt,         # converts "" → placeholder text
+        format_func=fmt,
         label_visibility="collapsed",
     )
 
@@ -209,17 +203,15 @@ with colB:
 
 radius_m = radius_ft * 0.3048
 
-# --------------------------------------------
-# Only update selected when user truly changes
-# --------------------------------------------
+# Only update selected from SEARCH if user actually changed the dropdown
 user_changed_search = (search_choice != st.session_state.last_search_value)
 st.session_state.last_search_value = search_choice
 
 if user_changed_search and search_choice != "":
-    match = df[df["search address"] == search_choice]
+    match = df[df[search_addr_col] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None
+        st.session_state.map_last_click = None  # reset map click
 
 # ============================================================
 # MAP BUILDERS
@@ -266,8 +258,22 @@ def build_focused_map_and_nearby(selected):
     if near.empty:
         return m, near
 
+    # Distance in feet
     near["Distance (ft)"] = (near["dist_m"] * 3.28084).round(0).astype("Int64")
     near = near.sort_values("dist_m").reset_index(drop=True)
+
+    # Numbering for neighbors (exclude selected address)
+    numbers = {}
+    n = 1
+    selected_address = selected.get(street_col, "")
+
+    for _, r in near.iterrows():
+        addr = r.get(street_col, "")
+        if addr == selected_address:
+            numbers[addr] = ""   # no number for primary point
+        else:
+            numbers[addr] = str(n)
+            n += 1
 
     # Radial dashed lines inward
     for _, r in near.iterrows():
@@ -280,25 +286,12 @@ def build_focused_map_and_nearby(selected):
             dash_array="5, 5"
         ).add_to(m)
 
-    # Nearby markers
-    # Determine numbering for map markers (exclude selected address)
-    numbers = {}
-    n = 1
+    # Numbered markers for nearby points
     for _, r in near.iterrows():
-        addr = r[street_col]
-        if addr == selected.get(street_col, ""):
-            numbers[addr] = ""   # no number for primary point
-        else:
-            numbers[addr] = str(n)
-            n += 1
-
-    # Add numbered markers on map
-    for _, r in near.iterrows():
-        addr = r[street_col]
-        marker_num = numbers[addr]     # "" for selected address, otherwise "1", "2", "3"...
+        addr = r.get(street_col, "")
+        marker_num = numbers.get(addr, "")
         col = COLOR.get(r.get(risk_col, ""), "gray")
 
-        # Use DivIcon to place a number inside a circle
         folium.map.Marker(
             location=(r[lat_col], r[lon_col]),
             icon=folium.DivIcon(
@@ -317,10 +310,10 @@ def build_focused_map_and_nearby(selected):
                     {marker_num}
                 </div>
                 """
-            )
+            ),
         ).add_to(m)
 
-    # Center marker
+    # Center marker (searched/clicked address) - no number, just big colored dot
     folium.CircleMarker(
         (lat, lon),
         radius=10,
@@ -334,7 +327,7 @@ def build_focused_map_and_nearby(selected):
     return m, near
 
 # ============================================================
-# CLICK HANDLER — FIRST CLICK AFTER SEARCH UPDATES IMMEDIATELY
+# CLICK HANDLER
 # ============================================================
 def handle_map_click(map_data):
     if not isinstance(map_data, dict):
@@ -361,8 +354,9 @@ def handle_map_click(map_data):
     nearest_idx = int(np.argmin(d))
     st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
-    # Signal to UI that dropdown must be cleared on next render
+    # On map click, tell search UI to clear on next render
     st.session_state.clear_search = True
+
     st.rerun()
 
 # ============================================================
@@ -420,56 +414,46 @@ else:
         legend()
 
     with table_col:
-
-        df2 = st.session_state.nearby_df
-        # -------------------------------------------------------
-    # Add numbering column that matches map markers
-    # -------------------------------------------------------
-    df2 = df2.copy()
-    df2.insert(0, "No.", "")   # create column as first column
-
-    selected_address = st.session_state.selected.get(street_col, "")
-
-    num = 1
-    for i in df2.index:
-        if df2.at[i, street_col] == selected_address:
-            df2.at[i, "No."] = ""      # no number for selected parcel
-        else:
-            df2.at[i, "No."] = num
-            num += 1
-
-        # Add row numbering (exclude selected address)
-        df2 = df2.copy()
-        df2.insert(0, "No.", 0)   # temporary
-
-        selected_address = st.session_state.selected.get(street_col, "")
-
-        num = 1
-        for i in df2.index:
-            if df2.at[i, street_col] == selected_address:
-                df2.at[i, "No."] = ""       # no number for searched address
-            else:
-                df2.at[i, "No."] = num
-                num += 1
+        df2 = st.session_state.nearby_df.copy()
 
         if df2.empty:
             st.warning("No nearby addresses within the selected radius.")
             st.session_state.nearby_df = pd.DataFrame()
         else:
-            # Selected columns (FullAddress for display, risk, distance, etc.)
-            # Keep numbering column at the left
+            # -------------------------------------------------------
+            # Numbering column (No.) — matches map markers
+            # -------------------------------------------------------
+            if "No." in df2.columns:
+                df2 = df2.drop(columns=["No."])
+            df2.insert(0, "No.", "")
+
+            selected_address = st.session_state.selected.get(street_col, "")
+
+            num = 1
+            for i in df2.index:
+                if df2.at[i, street_col] == selected_address:
+                    df2.at[i, "No."] = ""   # no number for selected address
+                else:
+                    df2.at[i, "No."] = num
+                    num += 1
+
+            # -------------------------------------------------------
+            # Build visible table columns (keep "No." FIRST)
+            # -------------------------------------------------------
             table_cols = ["No.", street_col, risk_col, "Distance (ft)"]
 
             if risk_score_col in df2.columns:
-                table_cols.insert(2, risk_score_col)
+                table_cols.insert(3, risk_score_col)
+
             if recent_insp_col in df2.columns:
                 table_cols.append(recent_insp_col)
+
             if num_insp_col in df2.columns:
                 table_cols.append(num_insp_col)
 
             df2 = df2[table_cols].fillna("")
 
-            # SUMMARY BANNER
+            # SUMMARY BANNER (no duplicate "Risk level: ..." line)
             sel_addr = st.session_state.selected.get(street_col, "")
             sel_risk = st.session_state.selected.get(risk_col, "")
             banner_color = COLOR.get(sel_risk, "#444")
@@ -485,13 +469,13 @@ else:
                             font-size:15px;
                             font-weight:bold;
                             text-align:center;">
-                    {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
+                    {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            # RECENT INSPECTION BAR
+            # OPTIONAL: Most recent inspection bar
             if recent_insp_col in df2.columns:
                 recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
                 recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
@@ -511,9 +495,6 @@ else:
                     unsafe_allow_html=True
                 )
 
-            # FORCE HEADER ROW
-            df2 = df2.rename(columns={col: col for col in df2.columns})
-
             # ROW COLORING
             def lighten(hex_color, factor=0.82):
                 hex_color = hex_color.lstrip("#")
@@ -522,8 +503,6 @@ else:
                 g = int(g + (255 - g)*factor)
                 b = int(b + (255 - b)*factor)
                 return f"rgb({r},{g},{b})"
-
-            selected_address = st.session_state.selected.get(street_col, "")
 
             def highlight_rows(row):
                 addr = str(row.get(street_col, ""))
@@ -541,7 +520,9 @@ else:
                 .apply(highlight_rows, axis=1)
                 .set_table_styles([{
                     "selector": "thead th",
-                    "props": [("background-color", "#333"), ("color", "white"), ("font-weight", "bold")]
+                    "props": [("background-color", "#333"),
+                              ("color", "white"),
+                              ("font-weight", "bold")]
                 }])
             )
 
@@ -550,5 +531,4 @@ else:
                 use_container_width=True,
                 hide_index=True,
                 height=550,
-                column_config={col: st.column_config.Column(col) for col in df2.columns}
             )
