@@ -577,9 +577,8 @@ else:
                 height=550,
             )
 # ============================================================
-# PDF PREVIEW DOWNLOAD (Streamlit Cloud compatible)
+# PDF PREVIEW DOWNLOAD (Streamlit Cloud SAFE VERSION)
 # ============================================================
-import img2pdf
 from PIL import Image, ImageDraw, ImageFont
 import tempfile
 import base64
@@ -587,56 +586,62 @@ import io
 
 st.markdown("### 📄 Download Quick Preview PDF")
 
-# ---- Helper: capture map image from st_folium session data ----
+
+# ---- Capture map image from st_folium session data ----
 def get_map_image():
     try:
         map_data = st.session_state.get("mainmap", {})
-        # Folium screenshot appears under key 'last_screenshot'
         if "last_screenshot" in map_data:
             img_bytes = map_data["last_screenshot"]
-            img = Image.open(io.BytesIO(img_bytes))
-            return img
+            return Image.open(io.BytesIO(img_bytes))
     except:
         pass
     return None
 
-# ---- Helper: render legend as PNG ----
+
+# ---- Generate the legend image ----
 def generate_legend_image():
-    items = [
+    legend_items = [
         ("Very High", "#8B0000"),
         ("High", "#FF0000"),
         ("Moderate", "#FFA500"),
         ("Low", "#FFFF00"),
     ]
 
-    width = 500
-    height = 80
+    width = 550
+    height = 70
 
     img = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
 
-    x = 20
-    y = 25
-    for label, color in items:
+    x = 25
+    y = 20
+    for label, color in legend_items:
         draw.rectangle([x, y, x+18, y+18], fill=color, outline="black")
         draw.text((x+26, y-2), label, fill="black", font=font)
-        x += 120
+        x += 130
 
     return img
 
-# ---- Helper: render pandas table as PNG ----
-def render_table_image(df):
-    # convert df to string table
+
+# ---- Convert DataFrame table into an image ----
+def table_to_image(df):
+    if df.empty:
+        img = Image.new("RGB", (500, 60), "white")
+        draw = ImageDraw.Draw(img)
+        draw.text((20, 20), "No nearby addresses.", fill="black")
+        return img
+
     text = df.to_string(index=False)
 
-    # estimate size
     lines = text.split("\n")
     font = ImageFont.load_default()
-    max_width = max([font.getlength(line) for line in lines])
-    line_height = 16
 
-    img = Image.new("RGB", (int(max_width + 40), int(len(lines)*line_height + 40)), "white")
+    max_w = max(font.getlength(line) for line in lines)
+    line_height = 18
+
+    img = Image.new("RGB", (int(max_w + 40), int(len(lines)*line_height + 40)), "white")
     draw = ImageDraw.Draw(img)
 
     y = 20
@@ -646,71 +651,62 @@ def render_table_image(df):
 
     return img
 
-# ---- Helper: stack multiple PIL images vertically ----
-def stack_images(images):
+
+# ---- Stack images vertically ----
+def stack_vertical(images):
     widths = [img.width for img in images]
     heights = [img.height for img in images]
 
-    canvas = Image.new("RGB", (max(widths), sum(heights)), "white")
+    total_height = sum(heights) + 40
+    max_width = max(widths)
 
-    y = 0
+    canvas = Image.new("RGB", (max_width, total_height), "white")
+
+    y_offset = 20
     for img in images:
-        canvas.paste(img, (0, y))
-        y += img.height
+        canvas.paste(img, (20, y_offset))
+        y_offset += img.height + 20
 
     return canvas
 
-# ---- Build PDF ----
+
+# ---- Generate PDF ----
 if st.button("📥 Generate PDF Preview"):
     map_img = get_map_image()
     legend_img = generate_legend_image()
 
-    # df2 is the current displayed filtered table
-    table_df = st.session_state.get("nearby_df", pd.DataFrame()).copy()
+    # ---- Prepare table DataFrame ----
+    df2 = st.session_state.get("nearby_df", pd.DataFrame()).copy()
 
-    # ensure columns are present and in correct order
-    # 1. No.
-    # 2. FullAddress (street_col)
-    # 3. risk level (risk_col)
-    # 4. Distance (ft)
-    # 5. risk score (if exists)
-    # 6. most recent inspection (if exists)
-    # 7. # of inspections (if exists)
+    table_cols = ["No.", street_col, risk_col, "Distance (ft)"]
+    if risk_score_col in df2.columns:
+        table_cols.append(risk_score_col)
+    if recent_insp_col in df2.columns:
+        table_cols.append(recent_insp_col)
+    if num_insp_col in df2.columns:
+        table_cols.append(num_insp_col)
 
-    cols = ["No.", street_col, risk_col, "Distance (ft)"]
+    if not df2.empty:
+        df2 = df2[table_cols].fillna("")
+        if num_insp_col in df2.columns:
+            df2[num_insp_col] = df2[num_insp_col].replace({0: ""})
 
-    if risk_score_col in table_df.columns:
-        cols.append(risk_score_col)
-    if recent_insp_col in table_df.columns:
-        cols.append(recent_insp_col)
-    if num_insp_col in table_df.columns:
-        cols.append(num_insp_col)
+    table_img = table_to_image(df2)
 
-    # clean & prepare df for PDF
-    if not table_df.empty:
-        table_df = table_df[cols].fillna("")
-        # blank instead of "0" for inspections
-        if num_insp_col in table_df.columns:
-            table_df[num_insp_col] = table_df[num_insp_col].replace({0: ""})
-
-    table_img = render_table_image(table_df)
-
-    # images to stack
-    images = []
-
+    # Build image list
+    imgs = []
     if map_img:
-        images.append(map_img)
+        imgs.append(map_img)
+    imgs.append(legend_img)
+    imgs.append(table_img)
 
-    images.append(legend_img)
-    images.append(table_img)
+    final_png = stack_vertical(imgs)
 
-    final_img = stack_images(images)
+    # Convert PNG → PDF
+    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    final_png.save(tmp_pdf.name, "PDF", resolution=100.0)
 
-    # convert to PDF
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    final_img.save(tmp.name, "PDF", resolution=100.0)
-
-    with open(tmp.name, "rb") as f:
+    with open(tmp_pdf.name, "rb") as f:
         st.download_button(
             "⬇️ Download PDF",
             f,
