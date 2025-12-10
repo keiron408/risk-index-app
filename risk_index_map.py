@@ -158,13 +158,13 @@ def haversine_vec(lat0, lon0, lats, lons):
 st.markdown("### 🔍 Search Options")
 
 @st.cache_data
-def get_search_options(df, col):
-    return sorted(df[col].dropna().unique())
+def get_search_options(df):
+    return sorted(df["search address"].dropna().unique())
 
 colA, colB = st.columns([2, 1])
 
 with colA:
-    opts = get_search_options(df, search_col if search_col else addr_col)
+    opts = get_search_options(df)
     placeholder = "Enter address / select from map..."
     search_choice = st.selectbox(
         "Search",
@@ -182,7 +182,7 @@ radius_m = radius_ft * 0.3048
 
 # If user selects from dropdown, update immediately
 if search_choice:
-    match = df[df[search_col] == search_choice] if search_col else df[df[addr_col] == search_choice]
+    match = df[df["search address"] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
         st.session_state.map_last_click = None  # reset click tracking
