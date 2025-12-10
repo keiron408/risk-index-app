@@ -164,7 +164,7 @@ def haversine_vec(lat0, lon0, lats, lons):
     return 2 * R * np.arcsin(np.sqrt(a))
 
 # ============================================================
-# SEARCH UI
+# SEARCH UI (with non-selectable placeholder + auto-reset)
 # ============================================================
 st.markdown("### 🔍 Search Options")
 
@@ -172,45 +172,54 @@ st.markdown("### 🔍 Search Options")
 def get_search_options(df):
     return sorted(df["search address"].dropna().unique())
 
+
 colA, colB = st.columns([2, 1])
 
-# -----------------------------------------------
-# FIX: Reset dropdown BEFORE rendering selectbox
-# -----------------------------------------------
+# -------------------------------------------
+# FIX: Clear dropdown BEFORE widget rendering
+# -------------------------------------------
 if st.session_state.get("clear_search", False):
-    st.session_state.search_box = ""          # clears UI selection safely
-    st.session_state.last_search_value = ""   # prevents search-logic override
-    st.session_state.clear_search = False     # consume the signal
+    st.session_state.search_box = ""     # internal value becomes empty string
+    st.session_state.last_search_value = ""
+    st.session_state.clear_search = False
+
 
 with colA:
     opts = get_search_options(df)
     placeholder = "Enter address / select from map..."
+
+    # -------------------------------------------
+    # Non-selectable placeholder using format_func
+    # -------------------------------------------
+    def fmt(v):
+        if v == "":
+            return placeholder
+        return v
+
     search_choice = st.selectbox(
         "Search",
-        [placeholder] + opts,
-        key="search_box",                      # MUST match the reset key
+        [""] + opts,             # empty string = placeholder
+        key="search_box",
+        format_func=fmt,         # converts "" → placeholder text
         label_visibility="collapsed",
     )
-    if search_choice == placeholder:
-        search_choice = ""
 
 with colB:
     radius_ft = st.radio("Radius (ft)", [200, 300], horizontal=True)
 
 radius_m = radius_ft * 0.3048
 
-# -------------------------------------------------
-# FIX: Only apply search if user *manually* changed it
-# -------------------------------------------------
+# --------------------------------------------
+# Only update selected when user truly changes
+# --------------------------------------------
 user_changed_search = (search_choice != st.session_state.last_search_value)
 st.session_state.last_search_value = search_choice
 
-if user_changed_search and search_choice:
+if user_changed_search and search_choice != "":
     match = df[df["search address"] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None   # allow new clicks
-
+        st.session_state.map_last_click = None
 
 # ============================================================
 # MAP BUILDERS
@@ -327,7 +336,6 @@ def handle_map_click(map_data):
 
     # Signal to UI that dropdown must be cleared on next render
     st.session_state.clear_search = True
-
     st.rerun()
 
 # ============================================================
