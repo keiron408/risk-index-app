@@ -271,7 +271,7 @@ if st.session_state.selected is None:
     # FULL-WIDTH MAP on initial load
     m = build_base_map()
    
-    map_data = map_area.st_folium(m, height=600, use_container_width=True, key="mainmap")
+    map_data = st_folium(m, height=600, use_container_width=True, key="mainmap")
     legend()
 
 else:
