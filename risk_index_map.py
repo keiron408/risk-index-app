@@ -70,6 +70,14 @@ def load_data():
 
 df = load_data()
 
+# Ensure "# of inspections" column is clean integer
+if num_insp_col in df.columns:
+    df[num_insp_col] = (
+        pd.to_numeric(df[num_insp_col], errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
 # ============================================================
 # AUTO-DETECT COLUMNS
 # ============================================================
