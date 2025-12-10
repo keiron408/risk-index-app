@@ -11,7 +11,7 @@ st.set_page_config(page_title="Termite Risk Index Viewer", layout="wide")
 st.title("🏠 Termite Risk Index Viewer")
 
 # ============================================================
-# CSS (Legend, Scroll-to-top Button, Mobile Map Height)
+# CSS (Legend, Scroll-to-top, Mobile Map Height + Centering)
 # ============================================================
 st.markdown("""
 <style>
@@ -22,17 +22,15 @@ st.markdown("""
     .stDataFrame {font-size: 0.8rem !important;}
 }
 
-/* =============== RISK LEGEND LAYOUT (Single Line Mobile) =============== */
-
-<style>
+/* =============== RISK LEGEND LAYOUT (Single Row, Scrollable if Needed) =============== */
 .legend-container {
     margin-top: 10px;
     display: flex;
     justify-content: center;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    gap: 10px;
-    white-space: nowrap;
+    flex-wrap: nowrap;          /* do NOT wrap onto second line */
+    overflow-x: auto;           /* allow horizontal scroll on tiny screens */
+    gap: 14px;
+    white-space: nowrap;        /* keep each label on one line */
 }
 
 .legend-item {
@@ -49,34 +47,18 @@ st.markdown("""
     border: 1px solid #555;
 }
 
-/* Mobile height fix for map */
+/* =============== MOBILE MAP HEIGHT + LEGEND PADDING =============== */
 @media (max-width: 600px) {
     iframe[title="streamlit_folium.st_folium"] {
-        height: 500px !important;
+        height: 500px !important;   /* taller but still mobile-friendly */
     }
 
-    /* NEW MOBILE PADDING AROUND LEGEND */
+    /* symmetrical padding around legend on mobile */
     .legend-container {
-        margin-top: 16px !important;
-        margin-bottom: 16px !important;
+        margin-top: 16px !important;    /* space below map */
+        margin-bottom: 16px !important; /* space above table */
     }
 }
-
-</style>
-
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-    const checkMap = setInterval(() => {
-        const frames = document.querySelectorAll('iframe[title="streamlit_folium.st_folium"]');
-        frames.forEach(f => {
-            try { f.contentWindow.dispatchEvent(new Event('resize')); }
-            catch(e) {}
-        });
-    }, 500);
-
-    setTimeout(() => clearInterval(checkMap), 4000);
-});
-</script>
 
 /* =============== SCROLL-TO-TOP BUTTON =============== */
 #scrollTopBtn {
@@ -98,14 +80,29 @@ document.addEventListener("DOMContentLoaded", function() {
 <button onclick="window.scrollTo({top:0, behavior:'smooth'});" id="scrollTopBtn">↑</button>
 
 <script>
+// scroll-to-top visibility
 window.onscroll = function() {
     let btn = document.getElementById("scrollTopBtn");
     if (document.documentElement.scrollTop > 300) btn.style.display = "block";
     else btn.style.display = "none";
 };
+
+// re-center folium maps after CSS height changes (mobile)
+document.addEventListener("DOMContentLoaded", function() {
+    const checkMap = setInterval(() => {
+        const frames = document.querySelectorAll('iframe[title="streamlit_folium.st_folium"]');
+        frames.forEach(f => {
+            try {
+                f.contentWindow.dispatchEvent(new Event('resize'));
+            } catch(e) {}
+        });
+    }, 500);
+
+    // stop after a few seconds
+    setTimeout(() => clearInterval(checkMap), 4000);
+});
 </script>
 """, unsafe_allow_html=True)
-
 
 # ============================================================
 # LOAD DATA
@@ -138,7 +135,7 @@ risk_col = find_col(df.columns, ["risk_level", "risk"])
 risk_score_col = find_col(df.columns, ["risk_score"])
 recent_insp_col = find_col(df.columns, ["most recent inspection"])
 num_insp_col = find_col(df.columns, ["# of inspections"])
-search_addr_col = "search address"
+search_addr_col = "search address"  # explicit
 
 if not street_col:
     street_col = addr_col
@@ -230,6 +227,7 @@ def get_search_options(df):
 
 colA, colB = st.columns([2, 1])
 
+# clear dropdown state if a map click asked for it
 if st.session_state.clear_search:
     st.session_state.search_box = ""
     st.session_state.last_search_value = ""
@@ -239,12 +237,12 @@ with colA:
     opts = get_search_options(df)
     placeholder = "Enter address / select from map..."
 
-    def fmt(v):
+    def fmt(v: str) -> str:
         return placeholder if v == "" else v
 
     search_choice = st.selectbox(
         "Search",
-        [""] + opts,
+        [""] + opts,              # "" is logical placeholder value
         key="search_box",
         format_func=fmt,
         label_visibility="collapsed",
@@ -263,7 +261,6 @@ if user_changed_search and search_choice != "":
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
         st.session_state.map_last_click = None
-
 
 # ============================================================
 # MAP BUILDERS
@@ -292,6 +289,7 @@ def build_focused_map_and_nearby(selected):
     )
     m.add_child(folium.LatLngPopup())
 
+    # radius circle
     folium.Circle(
         (lat, lon),
         radius_m * 1.20,
@@ -300,6 +298,7 @@ def build_focused_map_and_nearby(selected):
         weight=2,
     ).add_to(m)
 
+    # nearby parcels
     temp = df.copy()
     temp["dist_m"] = haversine_vec(lat, lon, temp[lat_col], temp[lon_col])
     near = temp[temp["dist_m"] <= radius_m].copy()
@@ -322,7 +321,7 @@ def build_focused_map_and_nearby(selected):
             numbers[addr] = str(counter)
             counter += 1
 
-    # dashed lines
+    # dashed lines from center to neighbors
     for _, r in near.iterrows():
         col = COLOR.get(r.get(risk_col, ""), "gray")
         folium.PolyLine(
@@ -360,7 +359,7 @@ def build_focused_map_and_nearby(selected):
             ),
         ).add_to(m)
 
-    # center marker
+    # center marker (selected address)
     folium.CircleMarker(
         (lat, lon),
         radius=10,
@@ -372,7 +371,6 @@ def build_focused_map_and_nearby(selected):
     ).add_to(m)
 
     return m, near
-
 
 # ============================================================
 # CLICK HANDLER
@@ -390,6 +388,7 @@ def handle_map_click(map_data):
     if lat is None or lon is None:
         return
 
+    # avoid duplicate handling of same click
     last = st.session_state.get("map_last_click")
     if last and abs(last["lat"] - lat) < 1e-9 and abs(last["lon"] - lon) < 1e-9:
         return
@@ -400,9 +399,9 @@ def handle_map_click(map_data):
     nearest_idx = int(np.argmin(d))
     st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
+    # switch control from search → map
     st.session_state.clear_search = True
     st.rerun()
-
 
 # ============================================================
 # LEGEND
@@ -416,7 +415,6 @@ def legend():
         <div class="legend-item"><div class="legend-box" style="background:#FFFF00;"></div> Low</div>
     </div>
     """, unsafe_allow_html=True)
-
 
 # ============================================================
 # INITIAL MAP (FULL WIDTH)
@@ -435,9 +433,8 @@ if st.session_state.selected is None:
     if map_data and map_data.get("last_clicked"):
         handle_map_click(map_data)
 
-
 # ============================================================
-# MAP + TABLE LAYOUT
+# MAP + TABLE LAYOUT (SIDE BY SIDE)
 # ============================================================
 else:
     map_col, table_col = st.columns([1.3, 1])
@@ -498,7 +495,7 @@ else:
             if num_insp_col in df2.columns:
                 df2[num_insp_col] = df2[num_insp_col].replace({0: ""})
 
-            # summary banner
+            # summary banner (neighbors only, no "Risk level: X" line)
             sel_addr = st.session_state.selected.get(street_col, "")
             sel_risk = st.session_state.selected.get(risk_col, "")
             banner_color = COLOR.get(sel_risk, "#444")
@@ -522,6 +519,7 @@ else:
                 unsafe_allow_html=True
             )
 
+            # optional “most recent inspection” summary
             if recent_insp_col in df2.columns:
                 recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
                 recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
