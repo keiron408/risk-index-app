@@ -323,7 +323,8 @@ if st.session_state.selected is None:
     map_data = st_folium(
         m,
         height=600,
-        use_container_width=True
+        use_container_width=True,
+        key="mainmap"
     )
     legend()
     st.stop()
@@ -340,7 +341,8 @@ with map_col:
     map_data = st_folium(
         m,
         height=600,
-        use_container_width=True
+        use_container_width=True,
+        key="mainmap"
     )
 
     # Click handling when a selection already exists
