@@ -577,100 +577,143 @@ else:
                 height=550,
             )
 # ============================================================
-# QUICK PREVIEW PDF DOWNLOAD
+# PDF PREVIEW DOWNLOAD (Streamlit Cloud compatible)
 # ============================================================
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
+import img2pdf
+from PIL import Image, ImageDraw, ImageFont
 import tempfile
-import os
-from PIL import Image
+import base64
+import io
 
-st.markdown("### 📄 Download Preview PDF")
+st.markdown("### 📄 Download Quick Preview PDF")
 
-def save_pdf(map_png, table_png):
-    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    c = canvas.Canvas(tmp_pdf.name, pagesize=letter)
+# ---- Helper: capture map image from st_folium session data ----
+def get_map_image():
+    try:
+        map_data = st.session_state.get("mainmap", {})
+        # Folium screenshot appears under key 'last_screenshot'
+        if "last_screenshot" in map_data:
+            img_bytes = map_data["last_screenshot"]
+            img = Image.open(io.BytesIO(img_bytes))
+            return img
+    except:
+        pass
+    return None
 
-    width, height = letter
-    y = height - 40  # top margin
-
-    # --- Map ---
-    if map_png and os.path.exists(map_png):
-        c.drawString(40, y, "Map Preview:")
-        y -= 20
-        img = Image.open(map_png)
-        img.thumbnail((width-80, 350), Image.LANCZOS)
-        c.drawImage(ImageReader(img), 40, y-350)
-        y -= 370
-
-    # --- Legend ---
-    c.drawString(40, y, "Risk Legend:")
-    y -= 20
-    legend_items = [
+# ---- Helper: render legend as PNG ----
+def generate_legend_image():
+    items = [
         ("Very High", "#8B0000"),
         ("High", "#FF0000"),
         ("Moderate", "#FFA500"),
         ("Low", "#FFFF00"),
     ]
-    x = 40
-    for label, color in legend_items:
-        c.setFillColor(color)
-        c.rect(x, y-10, 12, 12, fill=1)
-        c.setFillColor("black")
-        c.drawString(x + 18, y-8, label)
+
+    width = 500
+    height = 80
+
+    img = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    x = 20
+    y = 25
+    for label, color in items:
+        draw.rectangle([x, y, x+18, y+18], fill=color, outline="black")
+        draw.text((x+26, y-2), label, fill="black", font=font)
         x += 120
-    y -= 40
 
-    # --- Table ---
-    if table_png and os.path.exists(table_png):
-        c.drawString(40, y, "Nearby Table Preview:")
-        y -= 20
-        img = Image.open(table_png)
-        img.thumbnail((width-80, 350), Image.LANCZOS)
-        c.drawImage(ImageReader(img), 40, y-350)
-        y -= 370
+    return img
 
-    c.save()
-    return tmp_pdf.name
+# ---- Helper: render pandas table as PNG ----
+def render_table_image(df):
+    # convert df to string table
+    text = df.to_string(index=False)
 
+    # estimate size
+    lines = text.split("\n")
+    font = ImageFont.load_default()
+    max_width = max([font.getlength(line) for line in lines])
+    line_height = 16
 
-# Generate map PNG
-def screenshot_map():
-    if "mainmap" not in st.session_state:
-        return None
-    try:
-        m_data = st.session_state["mainmap"]
-        if "last_screenshot" in m_data:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-            tmp.write(m_data["last_screenshot"])
-            tmp.close()
-            return tmp.name
-    except:
-        return None
-    return None
+    img = Image.new("RGB", (int(max_width + 40), int(len(lines)*line_height + 40)), "white")
+    draw = ImageDraw.Draw(img)
 
-# Generate table PNG via Streamlit's screenshot endpoint
-def screenshot_table():
-    try:
-        import pyautogui
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-        shot = pyautogui.screenshot()
-        shot.save(tmp.name)
-        return tmp.name
-    except:
-        return None
+    y = 20
+    for line in lines:
+        draw.text((20, y), line, fill="black", font=font)
+        y += line_height
 
+    return img
 
-map_png = screenshot_map()
-table_png = screenshot_table()
+# ---- Helper: stack multiple PIL images vertically ----
+def stack_images(images):
+    widths = [img.width for img in images]
+    heights = [img.height for img in images]
 
-if st.button("📥 Download PDF Preview"):
-    pdf_path = save_pdf(map_png, table_png)
-    with open(pdf_path, "rb") as f:
+    canvas = Image.new("RGB", (max(widths), sum(heights)), "white")
+
+    y = 0
+    for img in images:
+        canvas.paste(img, (0, y))
+        y += img.height
+
+    return canvas
+
+# ---- Build PDF ----
+if st.button("📥 Generate PDF Preview"):
+    map_img = get_map_image()
+    legend_img = generate_legend_image()
+
+    # df2 is the current displayed filtered table
+    table_df = st.session_state.get("nearby_df", pd.DataFrame()).copy()
+
+    # ensure columns are present and in correct order
+    # 1. No.
+    # 2. FullAddress (street_col)
+    # 3. risk level (risk_col)
+    # 4. Distance (ft)
+    # 5. risk score (if exists)
+    # 6. most recent inspection (if exists)
+    # 7. # of inspections (if exists)
+
+    cols = ["No.", street_col, risk_col, "Distance (ft)"]
+
+    if risk_score_col in table_df.columns:
+        cols.append(risk_score_col)
+    if recent_insp_col in table_df.columns:
+        cols.append(recent_insp_col)
+    if num_insp_col in table_df.columns:
+        cols.append(num_insp_col)
+
+    # clean & prepare df for PDF
+    if not table_df.empty:
+        table_df = table_df[cols].fillna("")
+        # blank instead of "0" for inspections
+        if num_insp_col in table_df.columns:
+            table_df[num_insp_col] = table_df[num_insp_col].replace({0: ""})
+
+    table_img = render_table_image(table_df)
+
+    # images to stack
+    images = []
+
+    if map_img:
+        images.append(map_img)
+
+    images.append(legend_img)
+    images.append(table_img)
+
+    final_img = stack_images(images)
+
+    # convert to PDF
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    final_img.save(tmp.name, "PDF", resolution=100.0)
+
+    with open(tmp.name, "rb") as f:
         st.download_button(
-            "Download Preview PDF",
+            "⬇️ Download PDF",
             f,
-            file_name="termite_report_preview.pdf",
+            file_name="Termite_Risk_Preview.pdf",
             mime="application/pdf",
         )
