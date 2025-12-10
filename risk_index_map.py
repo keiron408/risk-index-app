@@ -327,7 +327,7 @@ if st.session_state.selected is None:
         key="mainmap"
     )
     legend()
-    st.stop()
+    
 
 # ============================================================
 # MAP + TABLE LAYOUT (SIDE BY SIDE)
