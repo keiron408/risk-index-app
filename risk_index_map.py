@@ -355,8 +355,10 @@ with table_col:
 
     df2 = st.session_state.nearby_df
     if df2.empty:
-        st.warning("No nearby addresses.")
-        st.stop()
+        st.warning("No nearby addresses within the selected radius.")
+        # do NOT stop — return to allow click-selection logic to continue
+        st.session_state.nearby_df = pd.DataFrame()
+
 
     # Selected columns (FullAddress for display, risk, distance, etc.)
     table_cols = [street_col, risk_col, "Distance (ft)"]
