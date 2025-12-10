@@ -23,14 +23,16 @@ st.markdown("""
 }
 
 /* =============== RISK LEGEND LAYOUT (Single Line Mobile) =============== */
+
+<style>
 .legend-container {
     margin-top: 10px;
     display: flex;
     justify-content: center;
-    flex-wrap: nowrap;      /* allows wrapping only if needed */
-    overflow-x: auto;       /* allow horizontal scroll on very small screens */
-    gap: 14px;
-    white-space: nowrap;        /* prevents splitting labels */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 10px;
+    white-space: nowrap;
 }
 
 .legend-item {
@@ -38,8 +40,6 @@ st.markdown("""
     align-items: center;
     gap: 6px;
     font-size: 13px;
-    white-space: nowrap;  /* keeps each risk label on one line */
-            
 }
 
 .legend-box {
@@ -49,12 +49,34 @@ st.markdown("""
     border: 1px solid #555;
 }
 
-/* =============== MOBILE MAP HEIGHT FIX =============== */
+/* Mobile height fix for map */
 @media (max-width: 600px) {
     iframe[title="streamlit_folium.st_folium"] {
-        height: 500px !important;   /* shorter map for mobile */
+        height: 500px !important;
+    }
+
+    /* NEW MOBILE PADDING AROUND LEGEND */
+    .legend-container {
+        margin-top: 16px !important;
+        margin-bottom: 16px !important;
     }
 }
+
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const checkMap = setInterval(() => {
+        const frames = document.querySelectorAll('iframe[title="streamlit_folium.st_folium"]');
+        frames.forEach(f => {
+            try { f.contentWindow.dispatchEvent(new Event('resize')); }
+            catch(e) {}
+        });
+    }, 500);
+
+    setTimeout(() => clearInterval(checkMap), 4000);
+});
+</script>
 
 /* =============== SCROLL-TO-TOP BUTTON =============== */
 #scrollTopBtn {
