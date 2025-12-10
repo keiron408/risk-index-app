@@ -314,8 +314,9 @@ def handle_map_click(map_data):
     nearest_idx = int(np.argmin(d))
     st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
-    # When user clicks map, clear search intent
-    st.session_state.last_search_value = ""
+    # When user clicks map, clear search intent AND dropdown
+    st.session_state.search_box = ""            # <— NEW AND CRITICAL
+    st.session_state.last_search_value = ""     # <— previously added, still needed
 
     st.rerun()
 
