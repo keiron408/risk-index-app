@@ -107,6 +107,14 @@ search_addr_col = "search address"
 if not street_col:
     street_col = addr_col
 
+# Convert "# of inspections" to clean integer values
+if num_insp_col in df.columns:
+    df[num_insp_col] = (
+        pd.to_numeric(df[num_insp_col], errors="coerce")
+        .fillna(0)
+        .astype(int)
+    )
+
 # ============================================================
 # RISK NORMALIZATION
 # ============================================================
