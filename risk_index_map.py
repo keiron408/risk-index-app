@@ -469,7 +469,7 @@ else:
                             font-size:15px;
                             font-weight:bold;
                             text-align:center;">
-                    {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}
+                    {max(len(df2) - 1, 0)} nearby addresses within {radius_ft} ft of {sel_addr}
                 </div>
                 """,
                 unsafe_allow_html=True
