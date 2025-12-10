@@ -71,7 +71,7 @@ def load_data():
 df = load_data()
 
 # ============================================================
-# AUTO-DETECT COLUMNS
+# AUTO-DETECT COLUMNS (KEEPS MAP WORKING)
 # ============================================================
 def find_col(cols, candidates):
     lower = [c.lower() for c in cols]
@@ -118,9 +118,9 @@ df[risk_col] = df[risk_col].replace({
 
 COLOR = {
     "Very High": "#8B0000",
-    "High": "#FF0000",
+    "High":     "#FF0000",
     "Moderate": "#FFA500",
-    "Low": "#FFFF00",
+    "Low":      "#FFFF00",
 }
 
 # ============================================================
@@ -139,7 +139,6 @@ center_lon = df[lon_col].mean()
 st.session_state.setdefault("selected", None)
 st.session_state.setdefault("nearby_df", pd.DataFrame())
 st.session_state.setdefault("map_last_click", None)
-st.session_state.setdefault("pending_first_click", False)
 
 # ============================================================
 # DISTANCE FUNCTION
@@ -181,12 +180,12 @@ with colB:
 
 radius_m = radius_ft * 0.3048
 
+# If user selects from dropdown, update immediately
 if search_choice:
     match = df[df[search_col] == search_choice] if search_col else df[df[addr_col] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None
-        st.session_state.pending_first_click = True
+        st.session_state.map_last_click = None     # reset click tracking
 
 # ============================================================
 # MAP BUILDERS
@@ -215,16 +214,17 @@ def build_focused_map_and_nearby(selected):
     )
     m.add_child(folium.LatLngPopup())
 
-    draw_radius_m = radius_m * 1.20
+    # Radius ring
+    ring_radius = radius_m * 1.20
     folium.Circle(
         (lat, lon),
-        draw_radius_m,
+        ring_radius,
         color="blue",
         fill=False,
         weight=2,
     ).add_to(m)
 
-    # Compute nearby points
+    # Compute nearby parcels
     temp = df.copy()
     temp["dist_m"] = haversine_vec(lat, lon, temp[lat_col], temp[lon_col])
     near = temp[temp["dist_m"] <= radius_m].copy()
@@ -235,13 +235,11 @@ def build_focused_map_and_nearby(selected):
     near["Distance (ft)"] = (near["dist_m"] * 3.28084).round(0).astype("Int64")
     near = near.sort_values("dist_m").reset_index(drop=True)
 
-    # -----------------------------------------
-    # RESTORED: dashed radial inward lines
-    # -----------------------------------------
+    # Radial dashed lines inward
     for _, r in near.iterrows():
         rc = COLOR.get(r.get(risk_col, ""), "gray")
         folium.PolyLine(
-            locations=[(lat, lon), (r[lat_col], r[lon_col])],
+            [(lat, lon), (r[lat_col], r[lon_col])],
             color=rc,
             weight=1.5,
             opacity=0.5,
@@ -255,10 +253,10 @@ def build_focused_map_and_nearby(selected):
             (r[lat_col], r[lon_col]),
             radius=6,
             color="white",
-            weight=1,
             fill=True,
             fill_color=c,
             fill_opacity=0.95,
+            weight=1,
         ).add_to(m)
 
     # Center marker
@@ -266,16 +264,16 @@ def build_focused_map_and_nearby(selected):
         (lat, lon),
         radius=10,
         color="black",
-        weight=2,
         fill=True,
         fill_color=risk_color,
+        weight=2,
         fill_opacity=1,
     ).add_to(m)
 
     return m, near
 
 # ============================================================
-# CLICK HANDLER
+# CLICK HANDLER — FIRST CLICK AFTER SEARCH UPDATES IMMEDIATELY
 # ============================================================
 def handle_map_click(map_data):
     if not isinstance(map_data, dict):
@@ -290,24 +288,17 @@ def handle_map_click(map_data):
     if lat is None or lon is None:
         return
 
-    # Prevent flashing after search
-    if st.session_state.pending_first_click:
-        st.session_state.pending_first_click = False
-        st.session_state.map_last_click = {"lat": lat, "lon": lon}
+    # Prevent ghost-click duplicates
+    last = st.session_state.get("map_last_click")
+    if last and abs(last["lat"] - lat) < 1e-9 and abs(last["lon"] - lon) < 1e-9:
         return
-
-    # Avoid duplicate-click reruns
-    last = st.session_state.map_last_click
-    if isinstance(last, dict):
-        if abs(last["lat"] - lat) < 1e-9 and abs(last["lon"] - lon) < 1e-9:
-            return
 
     st.session_state.map_last_click = {"lat": lat, "lon": lon}
 
     # Snap to nearest parcel
     d = haversine_vec(lat, lon, df[lat_col], df[lon_col])
-    idx = int(np.argmin(d))
-    st.session_state.selected = df.iloc[idx].to_dict()
+    nearest_idx = int(np.argmin(d))
+    st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
     st.rerun()
 
@@ -339,7 +330,7 @@ if st.session_state.selected is None:
     st.stop()
 
 # ============================================================
-# MAP + TABLE
+# MAP + TABLE LAYOUT
 # ============================================================
 map_col, table_col = st.columns([1.3, 1])
 
@@ -362,6 +353,7 @@ with table_col:
         st.warning("No nearby addresses.")
         st.stop()
 
+    # Selected columns
     table_cols = [street_col, risk_col, "Distance (ft)"]
     if risk_score_col in df2.columns: table_cols.insert(2, risk_score_col)
     if recent_insp_col in df2.columns: table_cols.append(recent_insp_col)
@@ -369,7 +361,7 @@ with table_col:
 
     df2 = df2[table_cols].fillna("")
 
-    # SUMMARY BANNER ABOVE TABLE
+    # SUMMARY BANNER
     sel_addr = st.session_state.selected.get(street_col, "")
     sel_risk = st.session_state.selected.get(risk_col, "")
     banner_color = COLOR.get(sel_risk, "#444")
@@ -392,7 +384,7 @@ with table_col:
         unsafe_allow_html=True
     )
 
-    # MOST RECENT INSPECTION BAR
+    # RECENT INSPECTION BAR
     if recent_insp_col in df2.columns:
         recent_vals = pd.to_datetime(df2[recent_insp_col], errors='coerce')
         recent_text = str(recent_vals.max().date()) if not recent_vals.isna().all() else "N/A"
@@ -412,10 +404,10 @@ with table_col:
             unsafe_allow_html=True
         )
 
-    # FORCE HEADER ROW TO SHOW
+    # FORCE HEADER ROW
     df2 = df2.rename(columns={col: col for col in df2.columns})
 
-    # ROW COLORING (selected = bold, others lightened)
+    # ROW COLORING
     def lighten(hex_color, factor=0.82):
         hex_color = hex_color.lstrip("#")
         r, g, b = (int(hex_color[i:i+2], 16) for i in (0,2,4))
