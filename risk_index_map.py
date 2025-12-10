@@ -347,6 +347,7 @@ if st.session_state.selected is None:
     if map_data and map_data.get("last_clicked"):
         handle_map_click(map_data)
 
+
 # ============================================================
 # MAP + TABLE LAYOUT (SIDE BY SIDE)
 # ============================================================
@@ -370,49 +371,48 @@ else:
 
         legend()
 
+    # ✅ THIS MUST BE INSIDE THE ELSE BLOCK
+    with table_col:
 
-with table_col:
+        df2 = st.session_state.nearby_df
 
-    df2 = st.session_state.nearby_df
-    if df2.empty:
-        st.warning("No nearby addresses within the selected radius.")
-        # do NOT stop — return to allow click-selection logic to continue
-        st.session_state.nearby_df = pd.DataFrame()
+        if df2.empty:
+            st.warning("No nearby addresses within the selected radius.")
+            st.session_state.nearby_df = pd.DataFrame()
 
+        # Selected columns (FullAddress for display, risk, distance, etc.)
+        table_cols = [street_col, risk_col, "Distance (ft)"]
+        if risk_score_col in df2.columns:
+            table_cols.insert(2, risk_score_col)
+        if recent_insp_col in df2.columns:
+            table_cols.append(recent_insp_col)
+        if num_insp_col in df2.columns:
+            table_cols.append(num_insp_col)
 
-    # Selected columns (FullAddress for display, risk, distance, etc.)
-    table_cols = [street_col, risk_col, "Distance (ft)"]
-    if risk_score_col in df2.columns:
-        table_cols.insert(2, risk_score_col)
-    if recent_insp_col in df2.columns:
-        table_cols.append(recent_insp_col)
-    if num_insp_col in df2.columns:
-        table_cols.append(num_insp_col)
+        df2 = df2[table_cols].fillna("")
 
-    df2 = df2[table_cols].fillna("")
+        # SUMMARY BANNER
+        sel_addr = st.session_state.selected.get(street_col, "")
+        sel_risk = st.session_state.selected.get(risk_col, "")
+        banner_color = COLOR.get(sel_risk, "#444")
+        text_color = "white" if sel_risk in ["High", "Very High"] else "black"
 
-    # SUMMARY BANNER
-    sel_addr = st.session_state.selected.get(street_col, "")
-    sel_risk = st.session_state.selected.get(risk_col, "")
-    banner_color = COLOR.get(sel_risk, "#444")
-    text_color = "white" if sel_risk in ["High", "Very High"] else "black"
-
-    st.markdown(
-        f"""
-        <div style="padding:10px 14px;
-                    margin-bottom:8px;
-                    border-radius:6px;
-                    background:{banner_color};
-                    color:{text_color};
-                    font-size:15px;
-                    font-weight:bold;
-                    text-align:center;">
-            {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
-            (Risk level: {sel_risk})
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.markdown(
+            f"""
+            <div style="padding:10px 14px;
+                        margin-bottom:8px;
+                        border-radius:6px;
+                        background:{banner_color};
+                        color:{text_color};
+                        font-size:15px;
+                        font-weight:bold;
+                        text-align:center;">
+                {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
+                (Risk level: {sel_risk})
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     # RECENT INSPECTION BAR
     if recent_insp_col in df2.columns:
