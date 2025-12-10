@@ -325,7 +325,6 @@ if st.session_state.selected is None:
         height=600,
         use_container_width=True
     )
-    handle_map_click(map_data)
     legend()
     st.stop()
 
@@ -343,7 +342,10 @@ with map_col:
         height=600,
         use_container_width=True
     )
-    handle_map_click(map_data)
+    
+    if map_data and map_data.get("last_clicked"):
+        handle_map_click(map_data)
+
     legend()
 
 with table_col:
