@@ -174,13 +174,21 @@ def get_search_options(df):
 
 colA, colB = st.columns([2, 1])
 
+# -----------------------------------------------
+# FIX: Reset dropdown BEFORE rendering selectbox
+# -----------------------------------------------
+if st.session_state.get("clear_search", False):
+    st.session_state.search_box = ""          # clears UI selection safely
+    st.session_state.last_search_value = ""   # prevents search-logic override
+    st.session_state.clear_search = False     # consume the signal
+
 with colA:
     opts = get_search_options(df)
     placeholder = "Enter address / select from map..."
     search_choice = st.selectbox(
         "Search",
         [placeholder] + opts,
-        key="search_box",
+        key="search_box",                      # MUST match the reset key
         label_visibility="collapsed",
     )
     if search_choice == placeholder:
@@ -191,7 +199,9 @@ with colB:
 
 radius_m = radius_ft * 0.3048
 
-# Only update selected from SEARCH if user actually changed the dropdown
+# -------------------------------------------------
+# FIX: Only apply search if user *manually* changed it
+# -------------------------------------------------
 user_changed_search = (search_choice != st.session_state.last_search_value)
 st.session_state.last_search_value = search_choice
 
@@ -199,7 +209,8 @@ if user_changed_search and search_choice:
     match = df[df["search address"] == search_choice]
     if not match.empty:
         st.session_state.selected = match.iloc[0].to_dict()
-        st.session_state.map_last_click = None  # reset map click
+        st.session_state.map_last_click = None   # allow new clicks
+
 
 # ============================================================
 # MAP BUILDERS
@@ -314,9 +325,8 @@ def handle_map_click(map_data):
     nearest_idx = int(np.argmin(d))
     st.session_state.selected = df.iloc[nearest_idx].to_dict()
 
-    # When user clicks map, clear search intent AND dropdown
-    st.session_state.search_box = ""            # <— NEW AND CRITICAL
-    st.session_state.last_search_value = ""     # <— previously added, still needed
+    # Signal to UI that dropdown must be cleared on next render
+    st.session_state.clear_search = True
 
     st.rerun()
 
