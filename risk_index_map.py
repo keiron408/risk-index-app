@@ -396,6 +396,20 @@ else:
 
         df2 = st.session_state.nearby_df
 
+        # Add row numbering (exclude selected address)
+        df2 = df2.copy()
+        df2.insert(0, "No.", 0)   # temporary
+
+        selected_address = st.session_state.selected.get(street_col, "")
+
+        num = 1
+        for i in df2.index:
+            if df2.at[i, street_col] == selected_address:
+                df2.at[i, "No."] = ""       # no number for searched address
+            else:
+                df2.at[i, "No."] = num
+                num += 1
+
         if df2.empty:
             st.warning("No nearby addresses within the selected radius.")
             st.session_state.nearby_df = pd.DataFrame()
