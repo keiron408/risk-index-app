@@ -333,6 +333,7 @@ def legend():
 # INITIAL MAP (FULL WIDTH)
 # ============================================================
 if st.session_state.selected is None:
+
     m = build_base_map()
     map_data = st_folium(
         m,
@@ -341,29 +342,34 @@ if st.session_state.selected is None:
         key="mainmap"
     )
     legend()
-    
+
+    # CLICK HANDLING FOR INITIAL MAP
+    if map_data and map_data.get("last_clicked"):
+        handle_map_click(map_data)
 
 # ============================================================
 # MAP + TABLE LAYOUT (SIDE BY SIDE)
 # ============================================================
-map_col, table_col = st.columns([1.3, 1])
+else:
+    map_col, table_col = st.columns([1.3, 1])
 
-with map_col:
-    m, near = build_focused_map_and_nearby(st.session_state.selected)
-    st.session_state.nearby_df = near
+    with map_col:
+        m, near = build_focused_map_and_nearby(st.session_state.selected)
+        st.session_state.nearby_df = near
 
-    map_data = st_folium(
-        m,
-        height=600,
-        use_container_width=True,
-        key="mainmap"
-    )
+        map_data = st_folium(
+            m,
+            height=600,
+            use_container_width=True,
+            key="mainmap"
+        )
 
-    # Click handling when a selection already exists
-    if map_data and map_data.get("last_clicked"):
-        handle_map_click(map_data)
+        # CLICK HANDLING FOR FOCUSED MAP
+        if map_data and map_data.get("last_clicked"):
+            handle_map_click(map_data)
 
-    legend()
+        legend()
+
 
 with table_col:
 
