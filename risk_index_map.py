@@ -326,7 +326,9 @@ if st.session_state.selected is None:
         use_container_width=True
     )
     legend()
-    st.stop()
+    
+    # Allow the script to CONTINUE so map clicks work
+    st.session_state.nearby_df = pd.DataFrame()
 
 # ============================================================
 # MAP + TABLE LAYOUT
@@ -343,9 +345,7 @@ with map_col:
         use_container_width=True
     )
     
-    if map_data and map_data.get("last_clicked"):
-        handle_map_click(map_data)
-
+    handle_map_click(map_data)
     legend()
 
 with table_col:
