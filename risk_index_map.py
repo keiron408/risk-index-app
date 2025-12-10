@@ -422,6 +422,21 @@ else:
     with table_col:
 
         df2 = st.session_state.nearby_df
+        # -------------------------------------------------------
+    # Add numbering column that matches map markers
+    # -------------------------------------------------------
+    df2 = df2.copy()
+    df2.insert(0, "No.", "")   # create column as first column
+
+    selected_address = st.session_state.selected.get(street_col, "")
+
+    num = 1
+    for i in df2.index:
+        if df2.at[i, street_col] == selected_address:
+            df2.at[i, "No."] = ""      # no number for selected parcel
+        else:
+            df2.at[i, "No."] = num
+            num += 1
 
         # Add row numbering (exclude selected address)
         df2 = df2.copy()
@@ -442,7 +457,9 @@ else:
             st.session_state.nearby_df = pd.DataFrame()
         else:
             # Selected columns (FullAddress for display, risk, distance, etc.)
-            table_cols = [street_col, risk_col, "Distance (ft)"]
+            # Keep numbering column at the left
+            table_cols = ["No.", street_col, risk_col, "Distance (ft)"]
+
             if risk_score_col in df2.columns:
                 table_cols.insert(2, risk_score_col)
             if recent_insp_col in df2.columns:
@@ -469,7 +486,6 @@ else:
                             font-weight:bold;
                             text-align:center;">
                     {len(df2)} nearby addresses within {radius_ft} ft of {sel_addr}<br>
-                    (Risk level: {sel_risk})
                 </div>
                 """,
                 unsafe_allow_html=True
