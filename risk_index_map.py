@@ -98,6 +98,20 @@ if not street_col:
     street_col = addr_col
 
 # ============================================================
+# SESSION-STATE SANITY CHECK (PREVENTS TYPEERROR + DEAD CLICKS)
+# ============================================================
+sel = st.session_state.get("selected", None)
+
+# If selected is not a dict OR missing lat/lon fields -> reset it
+if (
+    not isinstance(sel, dict)
+    or sel is None
+    or lat_col not in sel
+    or lon_col not in sel
+):
+    st.session_state.selected = None
+
+# ============================================================
 # RISK NORMALIZATION
 # ============================================================
 df[risk_col] = (
