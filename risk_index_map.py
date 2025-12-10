@@ -27,8 +27,10 @@ st.markdown("""
     margin-top: 10px;
     display: flex;
     justify-content: center;
-    flex-wrap: wrap;      /* allows wrapping only if needed */
+    flex-wrap: nowrap;      /* allows wrapping only if needed */
+    overflow-x: auto;       /* allow horizontal scroll on very small screens */
     gap: 14px;
+    white-space: nowrap;        /* prevents splitting labels */
 }
 
 .legend-item {
@@ -37,6 +39,7 @@ st.markdown("""
     gap: 6px;
     font-size: 13px;
     white-space: nowrap;  /* keeps each risk label on one line */
+            
 }
 
 .legend-box {
